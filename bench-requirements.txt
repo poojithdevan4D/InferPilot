@@ -1,0 +1,19 @@
+# Serving/benchmark environment — kept SEPARATE from the core project lock.
+#
+# vLLM is intentionally not a project dependency (it is launched as a subprocess).
+# The benchmark environment is a dedicated Python 3.12 venv with vLLM pinned
+# exactly. Reproduce with:
+#
+#   uv venv --python 3.12 .venv-bench
+#   uv pip install --python .venv-bench -r bench-requirements.txt
+#   uv pip install --python .venv-bench -e .   # inferpilot (+ httpx, pydantic)
+#
+# Then run the pinned characterization experiment:
+#
+#   .venv-bench/bin/python -m inferpilot.runner examples/example_experiment.json \
+#       --output-dir runs
+#
+# NOTE: vllm==0.29.0 pulls torch==2.13.0 and a full CUDA stack (multi-GB). It
+# needs an NVIDIA GPU with enough free VRAM to load the model + KV cache.
+
+vllm==0.29.0
