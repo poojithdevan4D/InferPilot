@@ -56,15 +56,42 @@ examples/
 tests/
   test_example_config.py   # example parses into ExperimentConfig
   test_roundtrip.py        # JSON round-trip incl. OOM/failed result
+  test_validation.py       # negative tests for every invalid contract state
 ```
 
 ## Quickstart
+
+Dependencies are locked with [uv](https://docs.astral.sh/uv/) (`uv.lock`, hashed,
+reproducible). Exact setup and test commands:
+
+```bash
+# 1. Install uv (once): https://docs.astral.sh/uv/getting-started/installation/
+# 2. Create/refresh the locked environment (base + dev tools):
+uv sync --extra dev
+
+# 3. Run the full test suite:
+uv run --extra dev pytest
+
+# Build the package (sdist + wheel):
+uv build
+
+# Regenerate the lock after changing dependencies in pyproject.toml:
+uv lock
+```
+
+`uv.lock` pins exact versions + hashes for every transitive dependency; `uv sync`
+reproduces that environment exactly. The Python floor is pinned in
+`pyproject.toml` (`requires-python = ">=3.10,<3.15"`).
+
+<details>
+<summary>Plain pip/venv (no uv)</summary>
 
 ```bash
 python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
 pytest
 ```
+</details>
 
 Load the example config:
 
@@ -91,6 +118,38 @@ configurable so we are **not guessing**:
   chat vs. batch, traces) are undecided.
 - **SLO** — concrete latency/throughput targets are undecided. `SLO` fields are all optional;
   experiments may run with no SLO for pure characterization.
+
+## Contract decisions for review
+
+The hardening pass encoded several semantic rules directly into the schemas. These
+are defensible defaults but warrant an architectural sign-off before the runner
+depends on them:
+
+- **Successful request must produce ≥ 1 token.** A `RequestMeasurement` with
+  `success=True` requires `output_tokens >= 1`, `ttft_ms`, and `e2e_latency_ms`.
+  A genuinely empty-but-successful completion (0 tokens) would be rejected — flag
+  if that case is real.
+- **TPOT is defined only for ≥ 2 output tokens.** One-token outputs have no
+  inter-token interval, so `tpot_ms` must be `None` there and present for
+  successful multi-token requests. Confirm this matches how the runner will
+  compute TPOT (mean of inter-token gaps, excluding TTFT).
+- **Failed requests keep best-effort timings.** Failures must carry an `error`
+  but may retain partial `ttft_ms`/`tpot_ms`/`e2e_latency_ms` (not forced to
+  `None`), so partial-progress data survives.
+- **Zero-duration aggregates.** A completed/aggregated run over ≥ 1 request must
+  have `duration_s > 0`; zero duration is valid only for an empty
+  (`num_requests == 0`) aggregate. Revisit if we ever want to store a
+  placeholder aggregate for a not-yet-run experiment.
+- **`FAILED`/`OOM`/`TIMEOUT` may still carry aggregates.** These require a
+  `failure` but do not forbid partial aggregates. `COMPLETED` requires aggregates
+  and forbids a `failure`.
+- **`SKIPPED` is under-specified.** It is treated as terminal but is only
+  constrained by "if a `failure` is present, its status must match". Whether a
+  skipped experiment should be allowed aggregates, or should record a skip
+  reason, is undecided.
+- **Schema versioning is exact-match.** `SUPPORTED_SCHEMA_VERSIONS` is currently
+  `{"0.1.0"}`; loading any other version fails loudly. There is no migration /
+  upgrade path yet — one will be needed before the contract changes.
 
 ## Hardware note
 

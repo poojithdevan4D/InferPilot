@@ -14,7 +14,7 @@ from typing import Any, Optional
 
 from pydantic import Field
 
-from ._base import SCHEMA_VERSION, SchemaModel
+from ._base import SchemaModel, VersionedSchemaModel
 
 
 class EngineConfig(SchemaModel):
@@ -83,10 +83,9 @@ class SLO(SchemaModel):
     )
 
 
-class ExperimentConfig(SchemaModel):
+class ExperimentConfig(VersionedSchemaModel):
     """Complete, serializable specification of one experiment."""
 
-    schema_version: str = Field(default=SCHEMA_VERSION)
     experiment_id: str = Field(description="Stable unique id for this experiment.")
     name: str = Field(description="Short human-readable name.")
     description: Optional[str] = Field(default=None)

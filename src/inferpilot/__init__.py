@@ -7,7 +7,12 @@ management, profiling, search, or decision logic yet.
 
 from __future__ import annotations
 
-from ._base import SCHEMA_VERSION, SchemaModel
+from ._base import (
+    SCHEMA_VERSION,
+    SUPPORTED_SCHEMA_VERSIONS,
+    SchemaModel,
+    VersionedSchemaModel,
+)
 from .config import EngineConfig, ExperimentConfig, SLO
 from .environment import EnvironmentMetadata, HardwareInfo
 from .measurements import RequestMeasurement
@@ -19,7 +24,9 @@ __version__ = SCHEMA_VERSION
 
 __all__ = [
     "SCHEMA_VERSION",
+    "SUPPORTED_SCHEMA_VERSIONS",
     "SchemaModel",
+    "VersionedSchemaModel",
     "ExperimentConfig",
     "EngineConfig",
     "SLO",

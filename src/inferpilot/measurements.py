@@ -9,13 +9,29 @@ from __future__ import annotations
 
 from typing import Optional
 
-from pydantic import Field
+from pydantic import Field, model_validator
 
 from ._base import SchemaModel
 
 
 class RequestMeasurement(SchemaModel):
-    """Timing and token counts for a single request."""
+    """Timing and token counts for a single request.
+
+    Presence rules (validated below):
+
+    * ``end_time_s >= start_time_s`` always.
+    * A **successful** request carries no ``error`` and must have produced at
+      least one token: ``output_tokens >= 1``, with ``ttft_ms`` and
+      ``e2e_latency_ms`` present. It is a real, timed completion.
+    * A **failed** request must carry an ``error``. Its timing fields are
+      best-effort and may be absent (the request may have died before the first
+      token or mid-stream), so they are permitted but not required.
+    * ``tpot_ms`` (mean time *between* output tokens, i.e. after the first) is
+      only defined when there are at least two output tokens. It must therefore
+      be absent whenever ``output_tokens < 2`` (in particular, one-token
+      outputs have no TPOT), and must be present for a successful request with
+      ``output_tokens >= 2``.
+    """
 
     request_id: str = Field(description="Unique id within the experiment.")
 
@@ -43,3 +59,38 @@ class RequestMeasurement(SchemaModel):
     error: Optional[str] = Field(
         default=None, description="Error summary when success is False."
     )
+
+    @model_validator(mode="after")
+    def _check_consistency(self) -> "RequestMeasurement":
+        if self.end_time_s < self.start_time_s:
+            raise ValueError(
+                f"end_time_s ({self.end_time_s}) must be >= start_time_s "
+                f"({self.start_time_s})."
+            )
+
+        # success <-> error
+        if self.success and self.error is not None:
+            raise ValueError("a successful request must not carry an error.")
+        if not self.success and self.error is None:
+            raise ValueError("a failed request must carry an error.")
+
+        # TPOT is only defined with >= 2 output tokens.
+        if self.output_tokens < 2 and self.tpot_ms is not None:
+            raise ValueError(
+                "tpot_ms must be absent when output_tokens < 2 "
+                "(no inter-token interval exists)."
+            )
+
+        if self.success:
+            if self.output_tokens < 1:
+                raise ValueError("a successful request must produce >= 1 output token.")
+            if self.ttft_ms is None:
+                raise ValueError("a successful request must have ttft_ms.")
+            if self.e2e_latency_ms is None:
+                raise ValueError("a successful request must have e2e_latency_ms.")
+            if self.output_tokens >= 2 and self.tpot_ms is None:
+                raise ValueError(
+                    "a successful request with >= 2 output tokens must have tpot_ms."
+                )
+
+        return self
