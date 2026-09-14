@@ -95,7 +95,8 @@ src/inferpilot/
     fingerprint.py   # exact-repeat and controlled-comparison identities
     compare.py       # cohort statistics + direction-aware observed deltas
     frontier.py      # compatibility-guarded multi-objective Pareto analysis
-    __main__.py      # ingest, summary, compare, and frontier CLI
+    decision.py      # explicit SLO feasibility + feasible-cohort ranking
+    __main__.py      # ingest, summary, compare, frontier, and evaluate CLI
 examples/
   example_experiment.json
 tests/
@@ -198,6 +199,10 @@ python -m inferpilot.comparison frontier result-store \
   --objective ttft_p95_ms --objective tpot_p95_ms \
   --objective throughput_tokens_per_s \
   --output runs/frontier.json
+
+# Apply a persisted StudySpec containing candidate ids, SLO, and objective.
+python -m inferpilot.comparison evaluate result-store /path/to/study.json \
+  --output runs/decision.json
 ```
 
 Human labels, hostnames, and capture timestamps do not define compatibility. Model/revision,
@@ -210,6 +215,13 @@ The frontier requires at least two explicit non-contextual objectives and comput
 Pareto dominance over cohort means. It deliberately does not collapse competing metrics
 into an implicit score, claim statistical significance, or select a deployment setting
 without an SLO.
+
+The decision gate requires a `StudySpec` with at least one explicit SLO constraint. A
+cohort is feasible only when the **worst observed run-level value** meets every constraint
+(maximum for latency ceilings, minimum for throughput floors). Only feasible cohorts are
+ranked, using their declared objective's run-level mean. This conservative observed-sample
+policy is deterministic and auditable, but it is not a confidence bound or deployment
+guarantee.
 
 ### First controlled scheduling experiment
 

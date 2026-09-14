@@ -20,9 +20,11 @@ from inferpilot import (
 )
 from inferpilot.comparison import (
     ParetoReport,
+    StudySpec,
     build_cohort,
     build_pareto_frontier,
     compare_cohorts,
+    evaluate_study,
 )
 
 
@@ -286,3 +288,126 @@ def test_pareto_report_roundtrip_and_cross_field_validation() -> None:
     invalid["nondominated_experiment_ids"] = ["not-an-entry"]
     with pytest.raises(ValidationError, match="must match nondominated entries"):
         ParetoReport.model_validate(invalid)
+
+
+def test_study_selects_best_objective_only_among_slo_feasible_cohorts() -> None:
+    seq1 = _cohort("seq1", max_num_seqs=1, throughput=100, ttft=30, tpot=5)
+    seq2 = _cohort("seq2", max_num_seqs=2, throughput=200, ttft=20, tpot=6)
+    study = StudySpec(
+        study_id="c4-policy",
+        experiment_ids=["seq1", "seq2"],
+        varied_engine_fields=["max_num_seqs"],
+        objective="throughput_tokens_per_s",
+        slo={"ttft_p95_ms": 40, "tpot_p95_ms": 6.5},
+    )
+
+    report = evaluate_study([seq1, seq2], study)
+
+    assert report.status == "selected"
+    assert report.recommended_experiment_id == "seq1"
+    assert report.best_experiment_ids == ["seq1"]
+    assert report.candidates[0].rank == 1
+    assert report.candidates[1].rank is None
+    assert not report.candidates[1].feasible
+
+
+def test_study_uses_worst_observed_run_for_slo_not_cohort_mean() -> None:
+    seq1 = _cohort("seq1", max_num_seqs=1, throughput=100, ttft=30)
+    seq2 = _cohort("seq2", max_num_seqs=2, throughput=200, ttft=20)
+    study = StudySpec(
+        study_id="worst-run-policy",
+        experiment_ids=["seq1", "seq2"],
+        varied_engine_fields=["max_num_seqs"],
+        objective="throughput_tokens_per_s",
+        slo={"ttft_p95_ms": 35.15},
+    )
+
+    report = evaluate_study([seq1, seq2], study)
+
+    seq1_result = report.candidates[0]
+    assert seq1_result.cohort.metrics["ttft_p95_ms"].mean < 35.15
+    assert seq1_result.slo_checks[0].observed_worst > 35.15
+    assert not seq1_result.feasible
+    assert report.recommended_experiment_id == "seq2"
+
+
+def test_study_reports_tie_and_no_feasible_candidate_without_guessing() -> None:
+    seq1 = _cohort("seq1", max_num_seqs=1, throughput=100, ttft=30)
+    seq2 = _cohort("seq2", max_num_seqs=2, throughput=100, ttft=20)
+    tied = StudySpec(
+        study_id="tie",
+        experiment_ids=["seq1", "seq2"],
+        varied_engine_fields=["max_num_seqs"],
+        objective="throughput_tokens_per_s",
+        slo={"ttft_p95_ms": 40},
+    )
+    tie_report = evaluate_study([seq1, seq2], tied)
+    assert tie_report.status == "tie"
+    assert tie_report.recommended_experiment_id is None
+    assert tie_report.best_experiment_ids == ["seq1", "seq2"]
+
+    impossible = StudySpec(
+        study_id="impossible",
+        experiment_ids=["seq1", "seq2"],
+        varied_engine_fields=["max_num_seqs"],
+        objective="throughput_tokens_per_s",
+        slo={"ttft_p95_ms": 1},
+    )
+    no_feasible = evaluate_study([seq1, seq2], impossible)
+    assert no_feasible.status == "no_feasible_candidate"
+    assert no_feasible.best_experiment_ids == []
+    assert no_feasible.recommended_experiment_id is None
+
+
+def test_study_spec_requires_a_real_slo_and_exact_cohort_order() -> None:
+    with pytest.raises(ValidationError, match="at least one constraint"):
+        StudySpec(
+            study_id="invalid",
+            experiment_ids=["seq1", "seq2"],
+            varied_engine_fields=["max_num_seqs"],
+            objective="throughput_tokens_per_s",
+            slo={},
+        )
+
+    study = StudySpec(
+        study_id="ordered",
+        experiment_ids=["seq2", "seq1"],
+        varied_engine_fields=["max_num_seqs"],
+        objective="throughput_tokens_per_s",
+        slo={"ttft_p95_ms": 40},
+    )
+    with pytest.raises(ValueError, match="order/ids"):
+        evaluate_study(
+            [
+                _cohort("seq1", max_num_seqs=1, throughput=100, ttft=30),
+                _cohort("seq2", max_num_seqs=2, throughput=200, ttft=20),
+            ],
+            study,
+        )
+
+
+def test_decision_report_refuses_tampered_rank_or_slo_result() -> None:
+    cohorts = [
+        _cohort("seq1", max_num_seqs=1, throughput=100, ttft=30),
+        _cohort("seq2", max_num_seqs=2, throughput=200, ttft=20),
+    ]
+    study = StudySpec(
+        study_id="tamper-check",
+        experiment_ids=["seq1", "seq2"],
+        varied_engine_fields=["max_num_seqs"],
+        objective="throughput_tokens_per_s",
+        slo={"ttft_p95_ms": 40},
+    )
+    report = evaluate_study(cohorts, study)
+
+    invalid_rank = report.model_dump(mode="json")
+    invalid_rank["candidates"][0]["rank"] = 1
+    with pytest.raises(ValidationError, match="ranks are inconsistent"):
+        type(report).model_validate(invalid_rank)
+
+    invalid_check = report.model_dump(mode="json")
+    invalid_check["candidates"][0]["slo_checks"][0]["passed"] = False
+    invalid_check["candidates"][0]["feasible"] = False
+    invalid_check["candidates"][0]["rank"] = None
+    with pytest.raises(ValidationError, match="SLO check result is inconsistent"):
+        type(report).model_validate(invalid_check)

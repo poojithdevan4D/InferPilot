@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
-import json
 from collections.abc import Sequence
 
 from ..results import ExperimentResult
-from .compare import METRICS, _validate_varied_fields, build_cohort
-from .fingerprint import comparison_fingerprint
+from .cohorts import prepare_compatible_cohorts
+from .compare import METRICS
 from .models import FrontierEntry, ObjectiveSpec, ParetoReport
 
 Run = tuple[str, ExperimentResult]
@@ -70,39 +69,14 @@ def build_pareto_frontier(
     Objective metrics are mandatory so the analysis never invents a hidden utility
     function or treats contextual resource telemetry as intrinsically good/bad.
     """
-    if len(cohorts) < 2:
-        raise ValueError("Pareto analysis requires at least two cohorts")
-
-    fields = _validate_varied_fields(varied_engine_fields)
     objectives = _validate_objectives(objective_metrics)
-    summaries = [build_cohort(runs, min_runs=min_runs) for runs in cohorts]
-
+    compatible = prepare_compatible_cohorts(
+        cohorts,
+        varied_engine_fields=varied_engine_fields,
+        min_runs=min_runs,
+    )
+    summaries = compatible.summaries
     experiment_ids = [summary.experiment_id for summary in summaries]
-    if len(set(experiment_ids)) != len(experiment_ids):
-        raise ValueError("Pareto analysis requires unique experiment ids")
-
-    cohort_contexts: list[str] = []
-    for runs in cohorts:
-        contexts = {comparison_fingerprint(result, fields) for _, result in runs}
-        if len(contexts) != 1:
-            raise ValueError("a cohort differs outside the explicitly varied engine fields")
-        cohort_contexts.append(next(iter(contexts)))
-    if len(set(cohort_contexts)) != 1:
-        raise ValueError(
-            "cohorts differ outside the explicitly varied engine field(s); frontier refused"
-        )
-
-    engine_values: list[dict[str, object]] = []
-    for runs in cohorts:
-        engine = runs[0][1].config.engine
-        engine_values.append({field: getattr(engine, field) for field in fields})
-    unchanged = [
-        field
-        for field in fields
-        if len({json.dumps(values[field], sort_keys=True) for values in engine_values}) == 1
-    ]
-    if unchanged:
-        raise ValueError(f"allowlisted engine field(s) did not actually change: {unchanged}")
 
     objective_means = [
         {objective.metric: summary.metrics[objective.metric].mean for objective in objectives}
@@ -119,7 +93,7 @@ def build_pareto_frontier(
         entries.append(
             FrontierEntry(
                 cohort=summary,
-                engine_values=engine_values[index],
+                engine_values=compatible.engine_values[index],
                 objective_means=objective_means[index],
                 dominated_by=dominators,
                 is_nondominated=not dominators,
@@ -127,8 +101,8 @@ def build_pareto_frontier(
         )
 
     return ParetoReport(
-        context_fingerprint=cohort_contexts[0],
-        varied_engine_fields=fields,
+        context_fingerprint=compatible.context_fingerprint,
+        varied_engine_fields=compatible.varied_engine_fields,
         objectives=objectives,
         entries=entries,
         nondominated_experiment_ids=[
