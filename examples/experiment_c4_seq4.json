@@ -1,0 +1,36 @@
+{
+  "schema_version": "0.3.0",
+  "experiment_id": "exp-c4-seq4",
+  "name": "closed-loop-c4-max-seqs-4",
+  "description": "Scheduling candidate: four concurrent clients with up to four active sequences. Paired with exp-c4-seq1; max_num_seqs is the only changed condition.",
+  "engine": {
+    "model": "Qwen/Qwen2.5-0.5B-Instruct",
+    "revision": "7ae557604adf67be50417f59c2c2f167def9a775",
+    "dtype": "auto",
+    "max_model_len": 2048,
+    "max_num_seqs": 4,
+    "max_num_batched_tokens": 2048,
+    "gpu_memory_utilization": 0.85,
+    "kv_cache_dtype": "auto",
+    "enable_prefix_caching": false,
+    "enable_chunked_prefill": null,
+    "sampler_backend": "pytorch",
+    "generation_config": "vllm",
+    "extra_args": {}
+  },
+  "workload": {
+    "name": "characterization-c4",
+    "num_requests": 32,
+    "warmup_requests": 4,
+    "prompt_tokens": 128,
+    "output_tokens": 32,
+    "request_rate_qps": null,
+    "max_concurrency": 4,
+    "temperature": 0.0,
+    "ignore_eos": true,
+    "seed": 0
+  },
+  "slo": null,
+  "seed": 0,
+  "tags": ["milestone-1", "scheduling", "c4", "candidate"]
+}

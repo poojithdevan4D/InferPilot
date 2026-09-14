@@ -197,6 +197,14 @@ settings do. A comparison is rejected if any non-allowlisted condition changes. 
 telemetry is reported as context; KV-cache utilization is not assumed to be intrinsically
 better when lower or higher.
 
+### First controlled scheduling experiment
+
+`examples/experiment_c4_seq1.json` and `examples/experiment_c4_seq4.json` hold workload,
+model, runtime, and every engine setting constant except `max_num_seqs`. Four clients issue
+requests concurrently. The baseline restricts vLLM to one active sequence; the candidate
+allows four, directly exercising continuous batching. Runs should be interleaved and repeated
+at least three times per cohort before comparison with `--vary max_num_seqs`.
+
 Pinned runtime decisions (see `inferpilot/runner/defaults.py`):
 
 | Decision | Value |
