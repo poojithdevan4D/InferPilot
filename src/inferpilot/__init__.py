@@ -16,6 +16,7 @@ from ._base import (
 from .config import EngineConfig, ExperimentConfig, SamplerBackend, SLO
 from .effective import EffectiveConfig
 from .environment import EnvironmentMetadata, HardwareInfo, ToolchainInfo
+from .phases import PhaseEvent, PhaseSpan, RunnerPhaseTiming
 from .telemetry import ResourceSample, ResourceTelemetry
 from .measurements import RequestMeasurement
 from .results import AggregateMetrics, ExperimentResult
@@ -40,6 +41,9 @@ __all__ = [
     "EffectiveConfig",
     "ResourceSample",
     "ResourceTelemetry",
+    "PhaseEvent",
+    "PhaseSpan",
+    "RunnerPhaseTiming",
     "RequestMeasurement",
     "AggregateMetrics",
     "ExperimentResult",
