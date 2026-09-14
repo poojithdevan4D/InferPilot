@@ -35,6 +35,18 @@ def _config() -> ExperimentConfig:
     )
 
 
+def test_workload_refuses_ambiguous_arrival_patterns() -> None:
+    with pytest.raises(ValidationError, match="exactly one arrival pattern"):
+        WorkloadSpec(
+            name="w",
+            num_requests=1,
+            prompt_tokens=8,
+            output_tokens=8,
+            request_rate_qps=1.0,
+            max_concurrency=1,
+        )
+
+
 def _env() -> EnvironmentMetadata:
     return EnvironmentMetadata(hostname="h")
 

@@ -221,6 +221,13 @@ async def run_requests_open_loop(
     Returns ``(measurements, actual_dispatch_offsets)`` in prompt order; the
     dispatch offsets are the monotonic send times relative to ``t0``.
     """
+    if len(offsets) != len(prompts):
+        raise ValueError("open-loop offsets must have exactly one entry per prompt")
+    if any(offset < 0 for offset in offsets):
+        raise ValueError("open-loop offsets must be non-negative")
+    if any(current < previous for previous, current in zip(offsets, offsets[1:])):
+        raise ValueError("open-loop offsets must be monotonically non-decreasing")
+
     url = base_url.rstrip("/") + "/v1/completions"
     timeout = httpx.Timeout(params.request_timeout_s)
     dispatch_offsets: list[float] = [0.0] * len(prompts)

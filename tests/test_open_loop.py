@@ -72,3 +72,24 @@ def test_arrivals_do_not_wait_for_earlier_completions() -> None:
         results, dispatch = _run(url, ["a", "b", "c"], offsets, request_timeout_s=5.0)
     assert all(m.success for m in results)
     assert dispatch[2] < 0.2  # dispatched before the first request completed
+
+
+@pytest.mark.parametrize(
+    "offsets, message",
+    [
+        ([0.0], "one entry per prompt"),
+        ([0.0, -0.1], "non-negative"),
+        ([0.1, 0.0], "monotonically non-decreasing"),
+    ],
+)
+def test_open_loop_refuses_invalid_schedules(offsets, message) -> None:
+    with pytest.raises(ValueError, match=message):
+        asyncio.run(
+            run_requests_open_loop(
+                "http://127.0.0.1:1",
+                ["a", "b"],
+                _params(),
+                t0=monotonic(),
+                offsets=offsets,
+            )
+        )

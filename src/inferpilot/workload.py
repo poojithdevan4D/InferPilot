@@ -75,9 +75,9 @@ class WorkloadSpec(SchemaModel):
 
     @model_validator(mode="after")
     def _check_arrival_pattern(self) -> "WorkloadSpec":
-        if self.request_rate_qps is None and self.max_concurrency is None:
+        if (self.request_rate_qps is None) == (self.max_concurrency is None):
             raise ValueError(
-                "workload must define an arrival pattern: set request_rate_qps "
-                "(open-loop) or max_concurrency (closed-loop)."
+                "workload must define exactly one arrival pattern: set request_rate_qps "
+                "for open-loop or max_concurrency for closed-loop, but not both."
             )
         return self
