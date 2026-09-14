@@ -195,7 +195,8 @@ Human labels, hostnames, and capture timestamps do not define compatibility. Mod
 workload, hardware, software/toolchain, runtime overrides, and requested/resolved engine
 settings do. A comparison is rejected if any non-allowlisted condition changes. Resource
 telemetry is reported as context; KV-cache utilization is not assumed to be intrinsically
-better when lower or higher.
+better when lower or higher. GPU memory is likewise contextual until a study defines a
+memory constraint or objective. Comparison report version `0.2.0` encodes these semantics.
 
 ### First controlled scheduling experiment
 

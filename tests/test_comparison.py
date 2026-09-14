@@ -157,6 +157,7 @@ def test_compare_allows_only_declared_engine_change_and_applies_direction() -> N
         baseline, candidate, varied_engine_fields=["max_num_seqs"]
     )
 
+    assert report.report_version == "0.2.0"
     assert report.varied_engine_fields == ["max_num_seqs"]
     assert report.metrics["throughput_tokens_per_s"].improvement_pct > 0
     assert report.metrics["ttft_p50_ms"].improvement_pct > 0

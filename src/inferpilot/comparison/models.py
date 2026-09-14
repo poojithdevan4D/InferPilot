@@ -8,7 +8,7 @@ from pydantic import Field
 
 from .._base import SchemaModel
 
-REPORT_VERSION = "0.1.0"
+REPORT_VERSION = "0.2.0"
 
 
 class StatisticSummary(SchemaModel):
