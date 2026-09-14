@@ -225,10 +225,10 @@ guarantee.
 
 ### First controlled scheduling experiment
 
-`examples/experiment_c4_seq1.json`, `experiment_c4_seq2.json`, and
-`experiment_c4_seq4.json` hold workload, model, runtime, and every engine setting constant
-except `max_num_seqs`. Four clients issue requests concurrently while vLLM is allowed one,
-two, or four active sequences, directly mapping the continuous-batching trade-off. Runs
+`examples/experiment_c4_seq1.json` through `experiment_c4_seq4.json` hold workload, model,
+runtime, and every engine setting constant except `max_num_seqs`. Four clients issue
+requests concurrently while vLLM is allowed one to four active sequences, directly mapping
+the continuous-batching trade-off. Runs
 should be interleaved and repeated at least three times per cohort before comparison with
 `--vary max_num_seqs`.
 
