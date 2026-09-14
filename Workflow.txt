@@ -1,0 +1,12 @@
+                 YOU
+                  │
+          ┌───────┴───────┐
+          ▼               ▼
+    ChatGPT Work      Claude Code
+   Research/Design     Build/Test
+          │               │
+          └───────┬───────┘
+                  ▼
+            InferPilot/
+                  │
+                 Git
