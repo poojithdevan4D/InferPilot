@@ -22,12 +22,13 @@ from .defaults import (
     DEFAULT_MODEL_REVISION,
     PINNED_VLLM_VERSION,
 )
-from .hardware import discover_hardware
+from .hardware import discover_hardware, discover_toolchain
 from .orchestrator import capture_environment, run_experiment
 from .server import (
     ManagedServer,
     ServerReadinessTimeout,
     ServerStartupError,
+    build_server_env,
     build_vllm_command,
     find_free_port,
 )
@@ -37,6 +38,8 @@ __all__ = [
     "run_experiment",
     "capture_environment",
     "discover_hardware",
+    "discover_toolchain",
+    "build_server_env",
     "compute_aggregates",
     "percentile",
     "GenerationParams",

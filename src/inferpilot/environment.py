@@ -1,11 +1,14 @@
-"""Environment and hardware metadata captured at run time.
+"""Environment, hardware, and toolchain metadata captured at run time.
 
 A benchmark number is meaningless without its conditions. This module records
-the machine and software stack an experiment actually ran on, so results from
-the 4 GB laptop and a rented 24/80 GB GPU never get silently compared.
+the machine, software stack, and CUDA toolchain an experiment actually ran on,
+so results from the 4 GB laptop and a rented 24/80 GB GPU never get silently
+compared — and so a toolchain mismatch (e.g. torch built for CUDA 13 but a local
+``nvcc`` from CUDA 12.4) is visible in provenance rather than hidden.
 
-Milestone 1 only *defines the schema*. Automatic hardware discovery (populating
-these fields from the live system) is deliberately out of scope.
+There is deliberately **no single ambiguous ``cuda_version``**: the driver's
+supported CUDA, PyTorch's compiled CUDA, and the local ``nvcc`` toolkit version
+are distinct facts and are recorded separately.
 """
 
 from __future__ import annotations
@@ -28,16 +31,39 @@ class HardwareInfo(SchemaModel):
     gpu_memory_total_mb: Optional[int] = Field(
         default=None, ge=0, description="Total VRAM of the primary GPU in MiB."
     )
-    cuda_version: Optional[str] = Field(default=None, description="CUDA toolkit/runtime version.")
-    driver_version: Optional[str] = Field(default=None, description="GPU driver version.")
+    driver_version: Optional[str] = Field(default=None, description="NVIDIA driver version.")
+    driver_cuda_version: Optional[str] = Field(
+        default=None,
+        description=(
+            "Max CUDA version the installed driver supports, from the nvidia-smi "
+            "banner ('CUDA Version: X.Y'). NOT the toolkit or torch CUDA version."
+        ),
+    )
 
     cpu_model: Optional[str] = Field(default=None)
     cpu_count: Optional[int] = Field(default=None, ge=0, description="Logical CPU count.")
     system_ram_mb: Optional[int] = Field(default=None, ge=0, description="Total system RAM in MiB.")
 
 
+class ToolchainInfo(SchemaModel):
+    """CUDA/build toolchain the run resolved — kept distinct from driver CUDA."""
+
+    torch_cuda_version: Optional[str] = Field(
+        default=None, description="CUDA version PyTorch was compiled against (torch.version.cuda)."
+    )
+    nvcc_version: Optional[str] = Field(
+        default=None, description="Local nvcc toolkit version (from `nvcc --version`)."
+    )
+    nvcc_path: Optional[str] = Field(
+        default=None, description="Resolved path of the nvcc executable, if any."
+    )
+    flashinfer_version: Optional[str] = Field(
+        default=None, description="Installed FlashInfer version, if any."
+    )
+
+
 class EnvironmentMetadata(SchemaModel):
-    """Full run-time environment: host, software stack, and hardware."""
+    """Full run-time environment: host, software stack, hardware, and toolchain."""
 
     hostname: Optional[str] = Field(default=None)
     platform: Optional[str] = Field(
@@ -45,11 +71,15 @@ class EnvironmentMetadata(SchemaModel):
     )
     python_version: Optional[str] = Field(default=None, description="e.g. '3.11.9'.")
     torch_version: Optional[str] = Field(default=None)
-    vllm_version: Optional[str] = Field(
-        default=None, description="Serving-engine version (unresolved which to pin — see README)."
-    )
+    vllm_version: Optional[str] = Field(default=None, description="Serving-engine version.")
 
     hardware: HardwareInfo = Field(default_factory=HardwareInfo)
+    toolchain: ToolchainInfo = Field(default_factory=ToolchainInfo)
+
+    # Which sampler backend was requested, and the exact non-secret env overrides
+    # applied to the server child process (e.g. {"VLLM_USE_FLASHINFER_SAMPLER": "0"}).
+    effective_sampler_backend: Optional[str] = Field(default=None)
+    runtime_overrides: dict[str, str] = Field(default_factory=dict)
 
     captured_at: Optional[datetime] = Field(
         default=None, description="When this metadata was captured (timezone-aware recommended)."

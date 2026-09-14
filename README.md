@@ -161,12 +161,22 @@ Pinned runtime decisions (see `inferpilot/runner/defaults.py`):
 | HF revision | `7ae557604adf67be50417f59c2c2f167def9a775` |
 | Workload | 4 warm-up + 32 measured, ~128 in / 32 out tokens, closed-loop c=1 |
 | Generation | greedy (`temperature=0`), `ignore_eos` + `min_tokens=32` (controlled length) |
+| Sampler | `sampler_backend=pytorch` (→ `VLLM_USE_FLASHINFER_SAMPLER=0`) |
 
-> **Real-GPU smoke test: intentionally deferred.** vLLM 0.29.0 is not installed on the dev
-> box, and the local RTX 3050 has only ~4 GB VRAM (≈3.6 GB free) — below vLLM's practical
-> footprint even for a 0.5B model once the CUDA context and KV cache are allocated. The slice
-> is validated end-to-end against a fake server; a real run should target a ≥16 GB GPU. No
-> claim of a passing GPU run is made.
+> **Sampler backend & the FlashInfer/nvcc issue.** On this box, FlashInfer 0.6.18's sampler
+> JIT invokes the local CUDA **12.4** `nvcc` with `--compress-mode=size` (an nvcc ≥12.6/13
+> flag), which fails and crashes vLLM startup. The baseline therefore pins
+> `sampler_backend: "pytorch"` (native sampler, no FlashInfer JIT). A result produced this way
+> **must not** be compared against one that used the FlashInfer sampler — the sampler is
+> recorded in `environment.effective_sampler_backend` / `runtime_overrides`. Set
+> `sampler_backend: "flashinfer"` (or fix the toolkit) to measure the FlashInfer path.
+
+### Schema version
+
+The result schema is **`0.2.0`**. It changed materially vs `0.1.0` (CUDA provenance split into
+distinct driver/torch/nvcc fields; sampler backend + applied env overrides recorded). There is
+**no in-place migration**: loading a `0.1.0` artifact fails loudly (`unsupported schema_version`)
+rather than being reinterpreted. Re-run to produce a `0.2.0` artifact.
 
 ## Unresolved decisions
 

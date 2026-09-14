@@ -15,9 +15,12 @@ def test_example_config_parses() -> None:
     cfg = ExperimentConfig.model_validate(raw)
 
     assert cfg.experiment_id == "exp-0001-baseline"
+    assert cfg.schema_version == "0.2.0"
     # model is operator-chosen, pinned to an exact HF revision.
     assert cfg.engine.model == "Qwen/Qwen2.5-0.5B-Instruct"
     assert cfg.engine.revision == "7ae557604adf67be50417f59c2c2f167def9a775"
+    # PyTorch sampler fallback (FlashInfer JIT unsupported by local nvcc 12.4).
+    assert cfg.engine.sampler_backend == "pytorch"
     assert cfg.workload.num_requests == 32
     assert cfg.workload.warmup_requests == 4
     assert cfg.workload.output_tokens == 32

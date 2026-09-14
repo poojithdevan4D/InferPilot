@@ -13,8 +13,8 @@ from ._base import (
     SchemaModel,
     VersionedSchemaModel,
 )
-from .config import EngineConfig, ExperimentConfig, SLO
-from .environment import EnvironmentMetadata, HardwareInfo
+from .config import EngineConfig, ExperimentConfig, SamplerBackend, SLO
+from .environment import EnvironmentMetadata, HardwareInfo, ToolchainInfo
 from .measurements import RequestMeasurement
 from .results import AggregateMetrics, ExperimentResult
 from .status import ExperimentStatus, FailureRecord
@@ -29,10 +29,12 @@ __all__ = [
     "VersionedSchemaModel",
     "ExperimentConfig",
     "EngineConfig",
+    "SamplerBackend",
     "SLO",
     "WorkloadSpec",
     "EnvironmentMetadata",
     "HardwareInfo",
+    "ToolchainInfo",
     "RequestMeasurement",
     "AggregateMetrics",
     "ExperimentResult",

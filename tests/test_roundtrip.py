@@ -14,6 +14,7 @@ from inferpilot import (
     FailureRecord,
     HardwareInfo,
     RequestMeasurement,
+    ToolchainInfo,
     WorkloadSpec,
 )
 
@@ -38,14 +39,23 @@ def _environment() -> EnvironmentMetadata:
         hostname="laptop",
         platform="Linux-6.8-x86_64",
         python_version="3.11.9",
-        torch_version="2.3.0",
-        vllm_version="0.5.0",
+        torch_version="2.13.0",
+        vllm_version="0.29.0",
         hardware=HardwareInfo(
             gpu_name="NVIDIA RTX 3050 Laptop GPU",
             gpu_count=1,
             gpu_memory_total_mb=4096,
-            cuda_version="12.4",
+            driver_version="595.84",
+            driver_cuda_version="13.0",
         ),
+        toolchain=ToolchainInfo(
+            torch_cuda_version="13.0",
+            nvcc_version="12.4.131",
+            nvcc_path="/usr/bin/nvcc",
+            flashinfer_version="0.6.18",
+        ),
+        effective_sampler_backend="pytorch",
+        runtime_overrides={"VLLM_USE_FLASHINFER_SAMPLER": "0"},
         captured_at=datetime(2026, 9, 14, 12, 0, 0, tzinfo=timezone.utc),
     )
 

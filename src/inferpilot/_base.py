@@ -16,12 +16,21 @@ from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-SCHEMA_VERSION = "0.1.0"
+SCHEMA_VERSION = "0.2.0"
 
 # Versions this codebase knows how to interpret. Loading an object stamped with
 # any other version must fail loudly rather than being silently treated as the
 # current schema (a mismatched contract can invalidate stored comparisons).
-SUPPORTED_SCHEMA_VERSIONS: frozenset[str] = frozenset({"0.1.0"})
+#
+# 0.2.0 changed the result STRUCTURE and SEMANTICS materially vs 0.1.0:
+#   * the single ambiguous `HardwareInfo.cuda_version` was split into distinct
+#     driver / torch / nvcc / flashinfer provenance fields, and
+#   * `EngineConfig.sampler_backend` + applied runtime env overrides are recorded.
+# There is intentionally NO in-place migration: 0.1.0 artifacts are refused
+# loudly (a 0.1.0 result cannot be reinterpreted as 0.2.0 without inventing the
+# missing provenance). Re-run to produce a 0.2.0 artifact, or write an explicit
+# migration before re-adding 0.1.0 here.
+SUPPORTED_SCHEMA_VERSIONS: frozenset[str] = frozenset({"0.2.0"})
 
 
 class SchemaModel(BaseModel):

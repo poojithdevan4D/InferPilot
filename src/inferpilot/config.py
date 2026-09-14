@@ -10,11 +10,13 @@ recorded as declarative configuration only; nothing here starts a server.
 
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
 from pydantic import Field
 
 from ._base import SchemaModel, VersionedSchemaModel
+
+SamplerBackend = Literal["auto", "flashinfer", "pytorch"]
 
 
 class EngineConfig(SchemaModel):
@@ -61,6 +63,15 @@ class EngineConfig(SchemaModel):
     )
     enable_chunked_prefill: Optional[bool] = Field(
         default=None, description="Split large prefills into chunks. None => engine default."
+    )
+
+    sampler_backend: SamplerBackend = Field(
+        default="auto",
+        description=(
+            "Which sampler vLLM should use. 'pytorch' sets child-process "
+            "VLLM_USE_FLASHINFER_SAMPLER=0 (native sampler, no FlashInfer JIT); "
+            "'flashinfer' sets it to 1; 'auto' leaves the variable unset (engine default)."
+        ),
     )
 
     extra_args: dict[str, Any] = Field(

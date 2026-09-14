@@ -18,7 +18,7 @@ from pathlib import Path
 from time import monotonic
 from typing import Callable, Optional
 
-from ..config import ExperimentConfig
+from ..config import EngineConfig, ExperimentConfig
 from ..environment import EnvironmentMetadata
 from ..measurements import RequestMeasurement
 from ..results import AggregateMetrics, ExperimentResult
@@ -26,11 +26,12 @@ from ..status import ExperimentStatus, FailureRecord
 from .aggregate import compute_aggregates
 from .artifacts import create_run_dir, server_log_paths, write_result, write_warmup
 from .client import GenerationParams, run_requests
-from .hardware import discover_hardware
+from .hardware import discover_hardware, discover_toolchain
 from .server import (
     ManagedServer,
     ServerReadinessTimeout,
     ServerStartupError,
+    build_server_env,
     build_vllm_command,
     find_free_port,
 )
@@ -62,8 +63,15 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def capture_environment() -> EnvironmentMetadata:
-    """One-time best-effort environment + hardware snapshot (no GPU polling)."""
+def capture_environment(
+    engine: Optional[EngineConfig] = None,
+    runtime_overrides: Optional[dict] = None,
+) -> EnvironmentMetadata:
+    """One-time best-effort environment + hardware + toolchain snapshot.
+
+    No GPU polling. ``engine``/``runtime_overrides`` record which sampler backend
+    was requested and the exact env overrides applied to the server child.
+    """
     return EnvironmentMetadata(
         hostname=socket.gethostname(),
         platform=platform.platform(),
@@ -71,6 +79,9 @@ def capture_environment() -> EnvironmentMetadata:
         torch_version=_pkg_version("torch"),
         vllm_version=_pkg_version("vllm"),
         hardware=discover_hardware(),
+        toolchain=discover_toolchain(),
+        effective_sampler_backend=engine.sampler_backend if engine is not None else None,
+        runtime_overrides=dict(runtime_overrides) if runtime_overrides else {},
         captured_at=_now(),
     )
 
@@ -141,7 +152,8 @@ def run_experiment(
     required.
     """
     workload = config.workload
-    environment = capture_environment()
+    env_overrides = build_server_env(config.engine)
+    environment = capture_environment(config.engine, env_overrides)
     started_at = _now()
 
     run_dir: Path = create_run_dir(output_dir, config.experiment_id)
@@ -159,6 +171,7 @@ def run_experiment(
         stderr_path=stderr_path,
         ready_timeout_s=ready_timeout_s,
         terminate_timeout_s=terminate_timeout_s,
+        env=env_overrides,
     )
 
     result: Optional[ExperimentResult] = None

@@ -1,8 +1,8 @@
 {
-  "schema_version": "0.1.0",
+  "schema_version": "0.2.0",
   "experiment_id": "exp-0001-baseline",
   "name": "qwen2.5-0.5b-characterization",
-  "description": "Milestone-1 baseline characterization: Qwen2.5-0.5B-Instruct pinned to an exact HF revision, deterministic controlled-length generation, closed-loop concurrency 1.",
+  "description": "Milestone-1 baseline characterization: Qwen2.5-0.5B-Instruct pinned to an exact HF revision, deterministic controlled-length generation, closed-loop concurrency 1. sampler_backend=pytorch: FlashInfer 0.6.18's sampler JIT invokes the local CUDA 12.4 nvcc with the unsupported flag --compress-mode=size, so this baseline measures vLLM with the PyTorch sampler fallback. It MUST NOT later be compared as if it used the FlashInfer sampler.",
   "engine": {
     "model": "Qwen/Qwen2.5-0.5B-Instruct",
     "revision": "7ae557604adf67be50417f59c2c2f167def9a775",
@@ -14,6 +14,7 @@
     "kv_cache_dtype": "auto",
     "enable_prefix_caching": false,
     "enable_chunked_prefill": null,
+    "sampler_backend": "pytorch",
     "extra_args": {}
   },
   "workload": {

@@ -16,6 +16,7 @@ GPU, no model, and no vLLM install.
 
 from __future__ import annotations
 
+import os
 import socket
 import subprocess
 import sys
@@ -24,7 +25,7 @@ import urllib.request
 from pathlib import Path
 from time import monotonic, sleep
 from types import TracebackType
-from typing import IO, Optional
+from typing import IO, Mapping, Optional
 
 from ..config import EngineConfig
 
@@ -95,6 +96,19 @@ def build_vllm_command(
     return cmd
 
 
+def build_server_env(engine: EngineConfig) -> dict[str, str]:
+    """Return the non-secret child-process env overrides implied by the config.
+
+    Only the sampler backend is mapped today. ``auto`` contributes nothing (the
+    engine default is left in place).
+    """
+    if engine.sampler_backend == "pytorch":
+        return {"VLLM_USE_FLASHINFER_SAMPLER": "0"}
+    if engine.sampler_backend == "flashinfer":
+        return {"VLLM_USE_FLASHINFER_SAMPLER": "1"}
+    return {}
+
+
 class ManagedServer:
     """Context-managed subprocess with health polling and guaranteed cleanup.
 
@@ -114,6 +128,7 @@ class ManagedServer:
         ready_timeout_s: float = 300.0,
         poll_interval_s: float = 0.5,
         terminate_timeout_s: float = 15.0,
+        env: Optional[Mapping[str, str]] = None,
     ) -> None:
         self.command = command
         self.host = host
@@ -124,6 +139,9 @@ class ManagedServer:
         self.ready_timeout_s = ready_timeout_s
         self.poll_interval_s = poll_interval_s
         self.terminate_timeout_s = terminate_timeout_s
+        # Non-secret runtime overrides applied on top of a COPY of the parent
+        # environment. The parent os.environ is never mutated.
+        self.env_overrides: dict[str, str] = dict(env) if env else {}
 
         self._process: Optional[subprocess.Popen[bytes]] = None
         self._stdout_fh: Optional[IO[bytes]] = None
@@ -138,12 +156,17 @@ class ManagedServer:
         self.stdout_path.parent.mkdir(parents=True, exist_ok=True)
         self._stdout_fh = open(self.stdout_path, "wb")
         self._stderr_fh = open(self.stderr_path, "wb")
+        # Build the child environment from a copy of the parent's, then apply only
+        # the configured overrides. os.environ itself is left untouched.
+        child_env = os.environ.copy()
+        child_env.update(self.env_overrides)
         # shell=False (list argv): no shell interpretation of any argument.
         self._process = subprocess.Popen(
             self.command,
             stdout=self._stdout_fh,
             stderr=self._stderr_fh,
             shell=False,
+            env=child_env,
         )
 
     def wait_until_ready(self) -> None:
