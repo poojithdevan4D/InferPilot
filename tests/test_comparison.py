@@ -162,6 +162,8 @@ def test_compare_allows_only_declared_engine_change_and_applies_direction() -> N
     assert report.metrics["ttft_p50_ms"].improvement_pct > 0
     assert report.metrics["peak_kv_cache_usage"].direction == "context_only"
     assert report.metrics["peak_kv_cache_usage"].improvement_pct is None
+    assert report.metrics["peak_gpu_memory_mb"].direction == "context_only"
+    assert report.metrics["peak_gpu_memory_mb"].improvement_pct is None
 
 
 def test_compare_refuses_hidden_workload_or_environment_change() -> None:

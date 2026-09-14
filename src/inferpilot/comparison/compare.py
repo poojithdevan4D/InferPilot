@@ -24,7 +24,7 @@ METRICS: dict[str, tuple[str, MetricGetter]] = {
         lambda r: float(r.aggregates.throughput_tokens_per_s),
     ),
     "peak_gpu_memory_mb": (
-        "lower_is_better",
+        "context_only",
         lambda r: float(r.telemetry.peak_gpu_memory_mb),
     ),
     "peak_kv_cache_usage": (

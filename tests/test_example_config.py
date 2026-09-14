@@ -9,6 +9,7 @@ from inferpilot import ExperimentConfig
 
 EXAMPLE = Path(__file__).resolve().parents[1] / "examples" / "example_experiment.json"
 C4_SEQ1 = Path(__file__).resolve().parents[1] / "examples" / "experiment_c4_seq1.json"
+C4_SEQ2 = Path(__file__).resolve().parents[1] / "examples" / "experiment_c4_seq2.json"
 C4_SEQ4 = Path(__file__).resolve().parents[1] / "examples" / "experiment_c4_seq4.json"
 
 
@@ -50,14 +51,18 @@ def test_unknown_field_is_rejected() -> None:
 
 def test_controlled_scheduling_configs_differ_only_in_max_num_seqs() -> None:
     baseline = ExperimentConfig.model_validate_json(C4_SEQ1.read_text())
+    midpoint = ExperimentConfig.model_validate_json(C4_SEQ2.read_text())
     candidate = ExperimentConfig.model_validate_json(C4_SEQ4.read_text())
 
-    assert baseline.workload == candidate.workload
+    assert baseline.workload == midpoint.workload == candidate.workload
     assert baseline.engine.max_num_seqs == 1
+    assert midpoint.engine.max_num_seqs == 2
     assert candidate.engine.max_num_seqs == 4
 
     baseline_engine = baseline.engine.model_dump()
+    midpoint_engine = midpoint.engine.model_dump()
     candidate_engine = candidate.engine.model_dump()
     baseline_engine.pop("max_num_seqs")
+    midpoint_engine.pop("max_num_seqs")
     candidate_engine.pop("max_num_seqs")
-    assert baseline_engine == candidate_engine
+    assert baseline_engine == midpoint_engine == candidate_engine
