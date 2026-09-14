@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import statistics
 from typing import Any, Literal, Optional
 
 from pydantic import Field, model_validator
@@ -12,7 +13,7 @@ from ..config import SLO
 REPORT_VERSION = "0.2.1"
 FRONTIER_REPORT_VERSION = "0.1.1"
 DECISION_REPORT_VERSION = "0.1.1"
-BLOCKED_STUDY_REPORT_VERSION = "0.1.0"
+BLOCKED_STUDY_REPORT_VERSION = "0.1.1"
 
 SLO_RULES = {
     "ttft_p95_ms": ("ttft_p95_ms", "<="),
@@ -414,18 +415,61 @@ class BlockedStudyReport(SchemaModel):
 
     @model_validator(mode="after")
     def _check_report(self) -> "BlockedStudyReport":
-        num_blocks = len(self.study.blocks)
+        # (10) exact report-version gating.
+        if self.report_version != BLOCKED_STUDY_REPORT_VERSION:
+            raise ValueError(
+                f"unsupported blocked report_version {self.report_version!r}; "
+                f"expected {BLOCKED_STUDY_REPORT_VERSION!r}"
+            )
+
+        study = self.study
+        num_blocks = len(study.blocks)
         if len(self.blocks) != num_blocks:
             raise ValueError("report blocks must match study blocks")
-        if [b.seed for b in self.blocks] != [b.seed for b in self.study.blocks]:
+        if [b.seed for b in self.blocks] != [b.seed for b in study.blocks]:
             raise ValueError("report block seeds must match study block seeds in order")
 
         width = len(self.candidates)
-        for block in self.blocks:
+        varied = set(study.varied_engine_fields)
+        direction = OBJECTIVE_DIRECTIONS[study.objective]
+        expected_slo = [
+            (field, *SLO_RULES[field], threshold)
+            for field, threshold in study.slo.model_dump().items()
+            if threshold is not None
+        ]
+
+        # --- per-block cell recomputation ---------------------------------
+        for block, block_spec in zip(self.blocks, study.blocks):
             if len(block.candidates) != width:
                 raise ValueError("every block must evaluate the full rectangular design")
+            # (1) candidate ids match the block spec, in order.
+            if [c.experiment_id for c in block.candidates] != block_spec.experiment_ids:
+                raise ValueError("block candidate ids must match StudyBlock.experiment_ids in order")
+            for cell in block.candidates:
+                # (2) engine-value keys exactly match varied_engine_fields.
+                if set(cell.engine_values) != varied:
+                    raise ValueError("block candidate engine keys must equal varied_engine_fields")
+                # (4) SLO checks exactly match the study SLO via SLO_RULES.
+                actual_slo = [
+                    (ch.slo_field, ch.metric, ch.operator, ch.threshold)
+                    for ch in cell.slo_checks
+                ]
+                if actual_slo != expected_slo:
+                    raise ValueError("block candidate SLO checks must exactly match the study SLO")
+                # (5) recompute each check's passed from observed value/operator/threshold.
+                for ch in cell.slo_checks:
+                    expected_pass = (
+                        ch.observed_worst <= ch.threshold
+                        if ch.operator == "<="
+                        else ch.observed_worst >= ch.threshold
+                    )
+                    if ch.passed != expected_pass:
+                        raise ValueError("SLO check passed is inconsistent with its observed value")
+                # (6) recompute block feasibility from checks.
+                if cell.feasible != all(ch.passed for ch in cell.slo_checks):
+                    raise ValueError("block candidate feasibility is inconsistent with its checks")
 
-        direction = OBJECTIVE_DIRECTIONS[self.study.objective]
+        # --- robust-candidate recomputation -------------------------------
         for index, candidate in enumerate(self.candidates):
             if candidate.candidate_index != index:
                 raise ValueError("candidates must be ordered by candidate_index")
@@ -433,16 +477,32 @@ class BlockedStudyReport(SchemaModel):
                 raise ValueError("candidate num_blocks must equal the number of blocks")
             if candidate.objective_direction != direction:
                 raise ValueError("candidate objective direction is incorrect")
-            # per-block feasibility for this candidate index must agree
+            if set(candidate.engine_values) != varied:
+                raise ValueError("robust candidate engine keys must equal varied_engine_fields")
+            # (3) position-wise block engine values equal the robust candidate's.
+            for block in self.blocks:
+                if block.candidates[index].engine_values != candidate.engine_values:
+                    raise ValueError("block engine values must equal the robust candidate values")
+            # (7) experiment_ids equal position-wise ids across blocks.
+            expected_ids = [block.candidates[index].experiment_id for block in self.blocks]
+            if candidate.experiment_ids != expected_ids:
+                raise ValueError("robust candidate experiment_ids must match per-block ids")
+            # (8) recompute block_objective_means + mean_objective_mean.
+            means = [block.candidates[index].objective_mean for block in self.blocks]
+            if candidate.block_objective_means != means:
+                raise ValueError("block_objective_means inconsistent with per-block results")
+            if candidate.mean_objective_mean != statistics.mean(means):
+                raise ValueError("mean_objective_mean inconsistent with per-block results")
+            # (6/9) recompute robust feasibility.
             observed_feasible = sum(
                 1 for block in self.blocks if block.candidates[index].feasible
             )
             if candidate.blocks_feasible != observed_feasible:
                 raise ValueError("blocks_feasible is inconsistent with per-block results")
-            means = [block.candidates[index].objective_mean for block in self.blocks]
-            if candidate.block_objective_means != means:
-                raise ValueError("block_objective_means inconsistent with per-block results")
+            if candidate.robust_feasible != (observed_feasible == num_blocks):
+                raise ValueError("robust_feasible is inconsistent with per-block results")
 
+        # --- ranks / best / status / recommendation (9) -------------------
         robust = [c for c in self.candidates if c.robust_feasible]
         if robust:
             reverse = direction == "higher_is_better"

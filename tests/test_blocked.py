@@ -134,7 +134,7 @@ def test_robust_feasible_selection_across_blocks() -> None:
 def test_report_roundtrips() -> None:
     report = evaluate_blocked_study(_block_cohorts(), _spec())
     assert BlockedStudyReport.model_validate_json(report.model_dump_json()) == report
-    assert report.report_version == "0.1.0"
+    assert report.report_version == "0.1.1"
 
 
 # --- negative --------------------------------------------------------------- #
@@ -215,4 +215,80 @@ def test_tampered_report_rejected() -> None:
     raw["candidates"][0]["blocks_feasible"] = 3
     raw["candidates"][0]["rank"] = 1  # keep candidate-level validator satisfied
     with pytest.raises(ValidationError, match="blocks_feasible is inconsistent"):
+        BlockedStudyReport.model_validate(raw)
+
+
+# --- independent per-field tampering (each mutates exactly one bound field) --- #
+
+
+def _valid_raw() -> dict:
+    return evaluate_blocked_study(_block_cohorts(), _spec()).model_dump(mode="json")
+
+
+def _m(fn):
+    raw = _valid_raw()
+    fn(raw)
+    return raw
+
+
+TAMPERS = [
+    # (label, mutator, expected message fragment)
+    ("block_candidate_id_order",
+     lambda r: r["blocks"][0]["candidates"].__setitem__(0, {**r["blocks"][0]["candidates"][0], "experiment_id": "zzz"}),
+     "match StudyBlock.experiment_ids"),
+    ("engine_value_keys",
+     lambda r: r["blocks"][0]["candidates"][0]["engine_values"].__setitem__("extra", 9),
+     "engine keys must equal varied_engine_fields"),
+    ("position_engine_values",
+     lambda r: r["blocks"][0]["candidates"][0]["engine_values"].__setitem__("max_num_seqs", 99),
+     "block engine values must equal the robust candidate values"),
+    ("slo_check_threshold",
+     lambda r: r["blocks"][0]["candidates"][0]["slo_checks"][0].__setitem__("threshold", 999.0),
+     "SLO checks must exactly match"),
+    ("slo_check_passed",
+     lambda r: (r["blocks"][0]["candidates"][1]["slo_checks"][0].__setitem__("passed", False),
+                r["blocks"][0]["candidates"][1].__setitem__("feasible", False)),
+     "passed is inconsistent"),
+    ("block_feasibility",
+     lambda r: r["blocks"][0]["candidates"][0].__setitem__("feasible", False),
+     "feasible must agree with all SLO checks"),
+    ("robust_experiment_ids",
+     lambda r: r["candidates"][1]["experiment_ids"].__setitem__(0, "wrong"),
+     "experiment_ids must match per-block ids"),
+    ("block_objective_means",
+     lambda r: r["candidates"][1]["block_objective_means"].__setitem__(0, 0.0),
+     "block_objective_means inconsistent"),
+    ("mean_objective_mean",
+     lambda r: r["candidates"][1].__setitem__("mean_objective_mean", 0.0),
+     "mean_objective_mean inconsistent"),
+    ("blocks_feasible",
+     lambda r: (r["candidates"][1].__setitem__("blocks_feasible", 2),
+                r["candidates"][1].__setitem__("robust_feasible", False),
+                r["candidates"][1].__setitem__("rank", None),
+                r.__setitem__("best_candidate_indices", []),
+                r.__setitem__("status", "no_feasible_candidate"),
+                r.__setitem__("recommended_engine_values", None)),
+     "blocks_feasible is inconsistent"),
+    ("rank",
+     lambda r: r["candidates"][1].__setitem__("rank", 2),
+     "ranks are inconsistent"),
+    ("best_candidate_indices",
+     lambda r: r.__setitem__("best_candidate_indices", [0]),
+     "best_candidate_indices must match"),
+    ("status",
+     lambda r: r.__setitem__("status", "tie"),
+     "status is inconsistent"),
+    ("recommended_engine_values",
+     lambda r: r.__setitem__("recommended_engine_values", {"max_num_seqs": 1}),
+     "recommended_engine_values inconsistent"),
+    ("report_version",
+     lambda r: r.__setitem__("report_version", "0.1.0"),
+     "unsupported blocked report_version"),
+]
+
+
+@pytest.mark.parametrize("label,mutator,message", TAMPERS, ids=[t[0] for t in TAMPERS])
+def test_tampered_bound_field_rejected(label, mutator, message) -> None:
+    raw = _m(mutator)
+    with pytest.raises(ValidationError, match=message):
         BlockedStudyReport.model_validate(raw)

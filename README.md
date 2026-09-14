@@ -245,7 +245,7 @@ that does **not** weaken the within-block fingerprints). A candidate is **robust
 if every block's worst observed run meets the SLO; robust-feasible candidates are ranked by the
 mean of their per-block objective means, and all per-block results are preserved. Reports are
 immutable and make **no** statistical-significance, confidence-bound, or deployment-safety claim.
-Report versions: comparison `0.2.1`, frontier `0.1.1`, decision `0.1.1`, blocked study `0.1.0`
+Report versions: comparison `0.2.1`, frontier `0.1.1`, decision `0.1.1`, blocked study `0.1.1`
 (result schema `0.3.0` unchanged).
 
 ### First controlled scheduling experiment
