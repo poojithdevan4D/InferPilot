@@ -329,10 +329,27 @@ Pinned runtime decisions (see `inferpilot/runner/defaults.py`):
 
 ### Schema version
 
-The result schema is **`0.3.0`**. Version `0.2.0` added split CUDA provenance and the sampler
-backend; `0.3.0` adds resolved-configuration evidence and measured-window resource telemetry.
-There is **no in-place migration**: older artifacts fail loudly rather than being
-reinterpreted. Re-run to produce a `0.3.0` artifact.
+The current schema is **`0.4.0`**; **`0.3.0` is still read-supported**
+(`SUPPORTED_SCHEMA_VERSIONS = {0.3.0, 0.4.0}`). Version history: `0.2.0` added split CUDA
+provenance and the sampler backend; `0.3.0` added resolved-configuration evidence and
+measured-window resource telemetry; **`0.4.0`** adds optional `WorkloadSpec.prompt_seed` and
+`arrival_seed` (see below). Unknown versions (`0.1.0`, `0.2.0`, anything else) fail loudly.
+
+**Prompt/arrival seed separation (0.4.0).** Prompt-generation randomness and arrival-schedule
+randomness can now be seeded independently:
+
+- `prompt_seed` seeds prompt-text generation; `arrival_seed` seeds the Poisson schedule.
+- Each defaults to `None` and **falls back to the legacy `seed`** when omitted, so a 0.4.0
+  workload that sets only `seed` reproduces 0.3.0 behavior exactly.
+- Under schema `0.3.0` the split seeds must remain unset (the single `seed` drives both);
+  `ExperimentConfig` rejects a 0.3.0 config that sets them.
+- **Backward compatibility is byte-exact:** loaded 0.3.0 configs/results keep identical
+  exact/comparison/cross-block fingerprints — the identity payload strips the split-seed keys
+  when they are `None`. A frozen-hash regression test guards this. When set, either seed is
+  compatibility-significant; a blocked study's `cross_block_fingerprint` strips the arrival seed
+  (the block variable) but keeps the prompt seed significant (content fixed across blocks).
+- `arrivals.json` records an explicit `arrival_seed`; arrival-feature provenance binds to the
+  effective arrival seed without reinterpreting older seed-only artifacts.
 
 ## Unresolved decisions
 
@@ -352,9 +369,10 @@ schedule instead of the closed-loop semaphore:
 - Offsets are seconds relative to the measured **arrival origin** (t0). The first measured
   request arrives at offset `0.0`; each subsequent inter-arrival time is drawn from an
   exponential distribution with mean `1/request_rate_qps`
-  (`random.Random(WorkloadSpec.seed).expovariate(rate)`), and offsets are the running sum.
-- The schedule is fully determined by `(num_requests, request_rate_qps, seed)` — identical
-  inputs give identical schedules; different seeds give different ones.
+  (`random.Random(effective_arrival_seed).expovariate(rate)`), and offsets are the running sum.
+  The effective arrival seed is `arrival_seed` if set, else the legacy `seed`.
+- The schedule is fully determined by `(num_requests, request_rate_qps, effective_arrival_seed)`
+  — identical inputs give identical schedules; different seeds give different ones.
 - **Arrivals are independent of completion**: every request is scheduled up front and fires at
   its offset regardless of whether earlier requests have finished (no semaphore, no
   back-pressure). Warm-ups run sequentially and finish *before* the arrival clock and telemetry
