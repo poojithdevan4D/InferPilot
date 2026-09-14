@@ -38,7 +38,11 @@ from .artifacts import (
 )
 from .phases import PhaseTimer
 from .client import GenerationParams, run_requests, run_requests_open_loop
-from .schedule import POISSON_VERSION, generate_poisson_offsets
+from .schedule import (
+    BATCHED_POISSON_VERSION,
+    generate_batched_poisson_offsets,
+    generate_poisson_offsets,
+)
 from .effective_config import check_fidelity, parse_effective_config
 from .hardware import discover_hardware, discover_toolchain
 from .server import (
@@ -254,14 +258,18 @@ def run_experiment(
             params = _generation_params(config, request_timeout_s)
             concurrency = workload.max_concurrency or 1
             open_loop = workload.request_rate_qps is not None
-            scheduled_offsets = (
-                generate_poisson_offsets(
-                    workload.num_requests, workload.request_rate_qps,
-                    workload.effective_arrival_seed,
-                )
-                if open_loop
-                else None
-            )
+            scheduled_offsets = None
+            if open_loop:
+                if workload.arrival_pattern == BATCHED_POISSON_VERSION:
+                    scheduled_offsets = generate_batched_poisson_offsets(
+                        workload.num_requests, workload.request_rate_qps,
+                        workload.effective_arrival_seed, workload.burst_size,
+                    )
+                else:
+                    scheduled_offsets = generate_poisson_offsets(
+                        workload.num_requests, workload.request_rate_qps,
+                        workload.effective_arrival_seed,
+                    )
 
             async def _run_all() -> tuple[list, list, float, ResourceTelemetry, list, Optional[dict]]:
                 t0 = monotonic()
@@ -292,13 +300,14 @@ def run_experiment(
                             id_prefix="measured",
                         )
                         arrivals = {
-                            "algorithm": POISSON_VERSION,
+                            "algorithm": workload.arrival_pattern,
                             "request_rate_qps": workload.request_rate_qps,
                             # `seed` keeps its historical meaning: the seed that
                             # produced these offsets (= the effective arrival seed;
                             # identical to workload.seed for legacy 0.3.0 runs).
                             "seed": workload.effective_arrival_seed,
                             "arrival_seed": workload.effective_arrival_seed,
+                            "burst_size": workload.burst_size,
                             "scheduled_offsets_s": scheduled_offsets,
                             "actual_dispatch_offsets_s": dispatch,
                         }

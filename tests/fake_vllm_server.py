@@ -168,6 +168,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--output-tokens", type=int, default=8)
     parser.add_argument("--prompt-tokens", type=int, default=128)
     parser.add_argument("--kv-usage", type=float, default=0.42)
+    parser.add_argument("--response-delay", type=float, default=0.0)
     parser.add_argument(
         "--emit-effective",
         default=None,
@@ -188,7 +189,8 @@ def main(argv: list[str] | None = None) -> int:
         _emit_effective_config(args.emit_effective)
 
     server = _FakeServer(
-        ("127.0.0.1", args.port), args.mode, args.output_tokens, args.prompt_tokens, args.kv_usage
+        ("127.0.0.1", args.port), args.mode, args.output_tokens, args.prompt_tokens,
+        args.kv_usage, args.response_delay,
     )
     try:
         server.serve_forever()

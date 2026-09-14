@@ -97,6 +97,15 @@ def test_arrival_evidence_rejects_conflicting_seed_provenance() -> None:
         _evidence(seed=22, arrival_seed=99)
 
 
+def test_arrival_evidence_validates_algorithm_parameters() -> None:
+    raw = _evidence(seed=22, arrival_seed=22).model_dump(mode="json")
+    raw["algorithm"] = "batched-poisson-v1"
+    with pytest.raises(ValueError, match="requires burst_size"):
+        ArrivalEvidence.model_validate(raw)
+    raw["burst_size"] = 4
+    assert ArrivalEvidence.model_validate(raw).burst_size == 4
+
+
 def test_features_accept_legacy_seed_only_artifact() -> None:
     # 0.3.0-style artifact (no explicit arrival_seed); binds via its `seed`.
     result = _open_result("0.3.0", seed=7)  # no split seeds under 0.3.0

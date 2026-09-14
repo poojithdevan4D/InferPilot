@@ -31,13 +31,14 @@ def max_arrivals_in_window(offsets: list[float], window_s: float) -> int:
 class ArrivalEvidence(SchemaModel):
     """Validated shape of the runner's immutable ``arrivals.json`` artifact."""
 
-    algorithm: Literal["poisson-v1"]
+    algorithm: Literal["poisson-v1", "batched-poisson-v1"]
     request_rate_qps: float = Field(gt=0, allow_inf_nan=False)
     seed: int  # the seed that produced these offsets (= effective arrival seed)
     arrival_seed: Optional[int] = Field(
         default=None,
         description="Explicit arrival seed (0.4.0 artifacts). Absent on 0.3.0 artifacts.",
     )
+    burst_size: Optional[int] = Field(default=None, ge=2)
     scheduled_offsets_s: list[float]
     actual_dispatch_offsets_s: list[float]
 
@@ -58,6 +59,10 @@ class ArrivalEvidence(SchemaModel):
         # field). Reject contradictory provenance instead of trusting either.
         if self.arrival_seed is not None and self.arrival_seed != self.seed:
             raise ValueError("seed and arrival_seed must agree when both are present")
+        if self.algorithm == "poisson-v1" and self.burst_size is not None:
+            raise ValueError("poisson-v1 arrival evidence must not define burst_size")
+        if self.algorithm == "batched-poisson-v1" and self.burst_size is None:
+            raise ValueError("batched-poisson-v1 arrival evidence requires burst_size")
         if len(self.scheduled_offsets_s) != len(self.actual_dispatch_offsets_s):
             raise ValueError("scheduled and actual arrival offsets must have equal length")
         for name, offsets in (

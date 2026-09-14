@@ -25,13 +25,14 @@ from inferpilot.runner.orchestrator import run_experiment
 FAKE = Path(__file__).parent / "fake_vllm_server.py"
 
 
-def _builder(mode: str, output_tokens: int = 8):
+def _builder(mode: str, output_tokens: int = 8, response_delay: float = 0.0):
     def build(port: int) -> list[str]:
         return [
             sys.executable, str(FAKE),
             "--port", str(port),
             "--mode", mode,
             "--output-tokens", str(output_tokens),
+            "--response-delay", str(response_delay),
             "--emit-effective", "False",
         ]
     return build
@@ -196,6 +197,26 @@ def test_open_loop_run_produces_arrivals_and_excludes_warmups(tmp_path) -> None:
     assert min(m.start_time_s for m in result.measurements) < 0.2
     warm = json.loads((run_dir / "warmup.json").read_text())
     assert len(warm) == 2
+
+
+def test_batched_open_loop_dispatches_burst_without_waiting(tmp_path) -> None:
+    cfg = _open_loop_config(num_requests=6, warmup=0, rate=100.0, seed=7)
+    workload_payload = cfg.workload.model_dump()
+    workload_payload.update(arrival_pattern="batched-poisson-v1", burst_size=4)
+    cfg.workload = WorkloadSpec(**workload_payload)
+    result = run_experiment(
+        cfg, str(tmp_path),
+        command_builder=_builder("normal", 8, response_delay=0.3),
+        ready_timeout_s=15.0,
+    )
+    assert result.status is ExperimentStatus.COMPLETED
+    run_dir = list(tmp_path.iterdir())[0]
+    arrivals = json.loads((run_dir / "arrivals.json").read_text())
+    assert arrivals["algorithm"] == "batched-poisson-v1"
+    assert arrivals["burst_size"] == 4
+    assert arrivals["scheduled_offsets_s"][:4] == [0.0] * 4
+    # All first-batch requests dispatch long before any 0.3-second response ends.
+    assert max(arrivals["actual_dispatch_offsets_s"][:4]) < 0.2
 
 
 def test_open_loop_request_failures_still_structured(tmp_path) -> None:

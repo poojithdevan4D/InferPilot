@@ -39,6 +39,10 @@ def extract_arrival_features(
         raise ValueError("arrival features require an open-loop workload")
     if evidence.request_rate_qps != workload.request_rate_qps:
         raise ValueError("arrival artifact rate does not match the experiment config")
+    if evidence.algorithm != workload.arrival_pattern:
+        raise ValueError("arrival artifact algorithm does not match the experiment config")
+    if evidence.burst_size != workload.burst_size:
+        raise ValueError("arrival artifact burst_size does not match the experiment config")
     # Bind to the EFFECTIVE arrival seed. 0.3.0 artifacts carry only `seed` (which
     # was the arrival seed); 0.4.0 artifacts carry an explicit arrival_seed. Either
     # way it must equal the config's effective arrival seed — no reinterpretation.
