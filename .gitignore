@@ -28,4 +28,5 @@ htmlcov/
 # Experiment outputs (not committed; results are data, not source)
 results/
 runs/
+result-store/
 *.log

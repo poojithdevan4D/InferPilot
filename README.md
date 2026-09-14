@@ -17,6 +17,11 @@ distributed execution, database, web UI, or LLM-driven decision logic.
 The runner does **not** wrap or parse `vllm bench` — InferPilot owns its raw request
 measurements end to end.
 
+The minimal comparison layer catalogs complete run bundles by content hash, builds
+exact-repeat cohorts, and refuses comparisons that differ outside explicitly allowlisted
+engine parameters. It reports run-level descriptive statistics and observed changes; it
+does not make significance or automatic accept/reject claims.
+
 ## Milestone 1 execution flow
 
 ```
@@ -85,6 +90,11 @@ src/inferpilot/
     telemetry.py     # measured-window NVML + vLLM KV-cache sampling
     orchestrator.py  # glue: COMPLETED / FAILED / OOM / TIMEOUT
     __main__.py      # CLI: python -m inferpilot.runner <config.json>
+  comparison/
+    store.py         # content-addressed, integrity-checked run-bundle catalog
+    fingerprint.py   # exact-repeat and controlled-comparison identities
+    compare.py       # cohort statistics + direction-aware observed deltas
+    __main__.py      # ingest, summary, and compare CLI
 examples/
   example_experiment.json
 tests/
@@ -159,6 +169,33 @@ uv pip install --python .venv-bench -e .   # inferpilot + httpx
 # Run the pinned characterization experiment (starts a real vLLM server):
 .venv-bench/bin/python -m inferpilot.runner examples/example_experiment.json --output-dir runs
 ```
+
+## Cataloging and comparing repeated runs
+
+Only baseline-eligible results can be ingested. The catalog copies the complete run bundle
+and verifies every file against an integrity manifest when loading it.
+
+```bash
+# Ingest three equivalent repetitions.
+python -m inferpilot.comparison ingest result-store \
+  runs/<run-1> runs/<run-2> runs/<run-3>
+
+# Summarize one exact-repeat cohort (minimum three runs by default).
+python -m inferpilot.comparison summary result-store <experiment-id>
+
+# Compare two cohorts that differ only in one declared engine field.
+python -m inferpilot.comparison compare result-store \
+  --baseline <baseline-experiment-id> \
+  --candidate <candidate-experiment-id> \
+  --vary max_num_seqs \
+  --output runs/comparison.json
+```
+
+Human labels, hostnames, and capture timestamps do not define compatibility. Model/revision,
+workload, hardware, software/toolchain, runtime overrides, and requested/resolved engine
+settings do. A comparison is rejected if any non-allowlisted condition changes. Resource
+telemetry is reported as context; KV-cache utilization is not assumed to be intrinsically
+better when lower or higher.
 
 Pinned runtime decisions (see `inferpilot/runner/defaults.py`):
 
