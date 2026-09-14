@@ -9,12 +9,13 @@ SLOs, budgets, or evaluation partition.
 from __future__ import annotations
 
 import json
-from typing import Any, Literal, Optional
+from typing import Any, Literal, Mapping, Optional
 
 from pydantic import Field, model_validator
 
 from ._base import SchemaModel
 from .comparison.models import BlockedStudySpec
+from .config import ExperimentConfig
 
 
 CORPUS_SPEC_VERSION = "0.1.0"
@@ -145,3 +146,87 @@ class HeldOutCorpusSpec(SchemaModel):
             raise ValueError("candidate budgets must fall within the candidate grid")
         return self
 
+
+def _task_context(
+    config: ExperimentConfig, varied_engine_fields: list[str]
+) -> dict[str, Any]:
+    """Identity expected to stay fixed for one shape across both partitions."""
+    payload = config.model_dump(mode="json")
+    for key in ("experiment_id", "name", "description", "tags"):
+        payload.pop(key, None)
+    for field in varied_engine_fields:
+        payload["engine"].pop(field, None)
+    # Prompt and arrival samples may differ between partitions/blocks; the shape
+    # and every other generation/arrival parameter must remain identical.
+    for field in ("seed", "prompt_seed", "arrival_seed"):
+        payload["workload"].pop(field, None)
+    return payload
+
+
+def validate_corpus_configs(
+    spec: HeldOutCorpusSpec,
+    configs: Mapping[str, ExperimentConfig],
+) -> None:
+    """Bind generated 0.4.0 configs to a preregistered corpus, fail closed.
+
+    The mapping must contain exactly the experiment ids declared by ``spec``.
+    New corpus configs use explicit independent prompt and arrival seeds. Within
+    a task, prompt content is fixed while blocks vary arrival seed. Development
+    and held-out instances of a shape may use different prompt samples, but all
+    non-seed workload and non-varied engine fields must match.
+    """
+    expected_ids = {
+        experiment_id
+        for task in spec.tasks
+        for block in task.study.blocks
+        for experiment_id in block.experiment_ids
+    }
+    actual_ids = set(configs)
+    if actual_ids != expected_ids:
+        missing = sorted(expected_ids - actual_ids)
+        extra = sorted(actual_ids - expected_ids)
+        raise ValueError(f"corpus config ids mismatch: missing={missing}, extra={extra}")
+
+    shape_contexts: dict[str, str] = {}
+    for task in spec.tasks:
+        task_prompt_seed: Optional[int] = None
+        for block in task.study.blocks:
+            for position, experiment_id in enumerate(block.experiment_ids):
+                config = configs[experiment_id]
+                if config.experiment_id != experiment_id:
+                    raise ValueError("config mapping key must equal config.experiment_id")
+                if config.schema_version != "0.4.0":
+                    raise ValueError("M2D corpus configs must use schema_version 0.4.0")
+                workload = config.workload
+                if workload.prompt_seed is None or workload.arrival_seed is None:
+                    raise ValueError(
+                        "M2D corpus configs must set prompt_seed and arrival_seed explicitly"
+                    )
+                if workload.arrival_seed != block.seed:
+                    raise ValueError("config arrival_seed must equal its study block seed")
+                if task_prompt_seed is None:
+                    task_prompt_seed = workload.prompt_seed
+                elif workload.prompt_seed != task_prompt_seed:
+                    raise ValueError("prompt_seed must stay fixed within a blocked task")
+
+                candidate = spec.candidates[position]
+                actual_engine = {
+                    field: getattr(config.engine, field)
+                    for field in spec.varied_engine_fields
+                }
+                if actual_engine != candidate.engine_values:
+                    raise ValueError(
+                        "config engine values must match its corpus candidate position"
+                    )
+
+                context = json.dumps(
+                    _task_context(config, spec.varied_engine_fields),
+                    sort_keys=True,
+                    separators=(",", ":"),
+                )
+                prior = shape_contexts.setdefault(task.shape_id, context)
+                if context != prior:
+                    raise ValueError(
+                        "non-seed workload and non-varied engine context must match "
+                        "for a shape across development and heldout partitions"
+                    )

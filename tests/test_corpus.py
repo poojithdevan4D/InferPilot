@@ -7,7 +7,8 @@ from copy import deepcopy
 import pytest
 from pydantic import ValidationError
 
-from inferpilot.corpus import HeldOutCorpusSpec
+from inferpilot import EngineConfig, ExperimentConfig, WorkloadSpec
+from inferpilot.corpus import HeldOutCorpusSpec, validate_corpus_configs
 
 
 def _study(shape: str, partition: str, seeds: tuple[int, ...]) -> dict:
@@ -104,3 +105,57 @@ def test_global_experiment_id_reuse_rejected() -> None:
         raw["tasks"][0]["study"]["blocks"][0]["experiment_ids"][0]
     with pytest.raises(ValidationError, match="globally unique"):
         HeldOutCorpusSpec.model_validate(raw)
+
+
+def _configs(spec: HeldOutCorpusSpec) -> dict[str, ExperimentConfig]:
+    configs: dict[str, ExperimentConfig] = {}
+    prompt_seed_by_partition = {"development": 101, "heldout": 202}
+    shape_lengths = {"prefill": (1024, 16), "decode": (64, 256), "burst": (128, 32)}
+    for task in spec.tasks:
+        prompt_tokens, output_tokens = shape_lengths[task.shape_id]
+        for block in task.study.blocks:
+            for position, experiment_id in enumerate(block.experiment_ids):
+                candidate = spec.candidates[position].engine_values
+                configs[experiment_id] = ExperimentConfig(
+                    schema_version="0.4.0",
+                    experiment_id=experiment_id,
+                    name=experiment_id,
+                    engine=EngineConfig(
+                        model="org/model", revision="abc", max_model_len=2048,
+                        max_num_seqs=candidate["max_num_seqs"],
+                        max_num_batched_tokens=candidate["max_num_batched_tokens"],
+                        gpu_memory_utilization=0.85, enable_prefix_caching=False,
+                        sampler_backend="pytorch",
+                    ),
+                    workload=WorkloadSpec(
+                        name=task.shape_id, num_requests=64, warmup_requests=4,
+                        prompt_tokens=prompt_tokens, output_tokens=output_tokens,
+                        request_rate_qps=6.0, seed=0,
+                        prompt_seed=prompt_seed_by_partition[task.partition],
+                        arrival_seed=block.seed, ignore_eos=True,
+                    ),
+                )
+    return configs
+
+
+def test_generated_configs_bind_to_corpus() -> None:
+    spec = HeldOutCorpusSpec.model_validate(_raw())
+    validate_corpus_configs(spec, _configs(spec))
+
+
+@pytest.mark.parametrize(
+    ("mutate", "message"),
+    [
+        (lambda c, _s: c.pop(next(iter(c))), "config ids mismatch"),
+        (lambda c, _s: setattr(next(iter(c.values())).workload, "arrival_seed", 999), "arrival_seed"),
+        (lambda c, _s: setattr(next(iter(c.values())).workload, "prompt_seed", None), "set prompt_seed"),
+        (lambda c, _s: setattr(next(iter(c.values())).engine, "max_num_seqs", 99), "candidate position"),
+        (lambda c, _s: setattr(next(iter(c.values())).workload, "output_tokens", 17), "context must match"),
+    ],
+)
+def test_config_binding_rejects_drift(mutate, message) -> None:
+    spec = HeldOutCorpusSpec.model_validate(_raw())
+    configs = _configs(spec)
+    mutate(configs, spec)
+    with pytest.raises(ValueError, match=message):
+        validate_corpus_configs(spec, configs)
