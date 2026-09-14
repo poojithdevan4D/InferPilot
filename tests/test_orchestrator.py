@@ -165,6 +165,35 @@ def test_warmup_failure_prevents_measured_execution(tmp_path) -> None:
     assert all(e["success"] is False for e in entries)
 
 
+def test_open_loop_request_fails_closed_before_server_start(tmp_path) -> None:
+    base = _config(num_requests=3, warmup=0)
+    workload = WorkloadSpec(
+        name="open-loop",
+        num_requests=3,
+        prompt_tokens=128,
+        output_tokens=8,
+        request_rate_qps=2.0,
+        ignore_eos=True,
+    )
+    cfg = base.model_copy(update={"workload": workload})
+
+    def must_not_build(_port: int) -> list[str]:
+        raise AssertionError("server command must not be built for unsupported workload")
+
+    result = run_experiment(cfg, str(tmp_path), command_builder=must_not_build)
+
+    assert result.status is ExperimentStatus.FAILED
+    assert result.failure is not None
+    assert result.failure.error_type == "UnsupportedArrivalPattern"
+    assert "open-loop" in result.failure.message
+    assert result.measurements == []
+    assert result.is_baseline_eligible is False
+    run_dir = next(tmp_path.iterdir())
+    assert (run_dir / RESULT_FILENAME).exists()
+    lifecycle = json.loads((run_dir / "lifecycle.json").read_text())
+    assert lifecycle["teardown_started"] is False
+
+
 def test_readiness_timeout_produces_timeout_result(tmp_path) -> None:
     cfg = _config(num_requests=1, warmup=0)
     result = run_experiment(

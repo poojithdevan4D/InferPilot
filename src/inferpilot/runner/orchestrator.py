@@ -172,6 +172,26 @@ def run_experiment(
     run_dir: Path = create_run_dir(output_dir, config.experiment_id)
     stdout_path, stderr_path = server_log_paths(run_dir)
 
+    # The schema reserves open-loop workloads, but their arrival process is not
+    # implemented yet. Fail before constructing or launching a server rather
+    # than silently converting the requested workload to closed-loop c=1.
+    if workload.request_rate_qps is not None:
+        result = _failure_result(
+            config,
+            environment,
+            ExperimentStatus.FAILED,
+            "UnsupportedArrivalPattern",
+            "request_rate_qps requires open-loop arrivals, which this runner does not "
+            "implement; refusing to execute a mislabeled closed-loop benchmark",
+            started_at,
+        )
+        write_lifecycle(
+            run_dir,
+            {"pre_teardown": [], "teardown_count": 0, "teardown_started": False},
+        )
+        write_result(run_dir, result)
+        return result
+
     port = find_free_port(host)
     builder = command_builder or (lambda p: build_vllm_command(config.engine, p, host))
     command = builder(port)

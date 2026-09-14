@@ -20,9 +20,10 @@ from ._base import SchemaModel
 class WorkloadSpec(SchemaModel):
     """A reproducible synthetic workload.
 
-    Lengths are expressed in tokens. ``request_rate_qps`` selects the arrival
-    pattern: ``None`` means closed-loop (send up to ``max_concurrency`` at once),
-    a positive value means open-loop Poisson/uniform arrivals.
+    Lengths are expressed in tokens. ``request_rate_qps`` reserves the open-loop
+    arrival-rate contract; the current runner fails closed when it is populated
+    because the arrival distribution is not implemented yet. ``None`` selects
+    closed-loop execution with up to ``max_concurrency`` requests in flight.
     """
 
     name: str = Field(description="Human-readable workload label, e.g. 'chat-short'.")
@@ -43,7 +44,11 @@ class WorkloadSpec(SchemaModel):
     request_rate_qps: Optional[float] = Field(
         default=None,
         gt=0,
-        description="Open-loop arrival rate in requests/sec. None => closed-loop.",
+        description=(
+            "Requested open-loop arrival rate in requests/sec. None => closed-loop. "
+            "The current runner rejects non-None values rather than silently "
+            "executing a different arrival process."
+        ),
     )
     max_concurrency: Optional[int] = Field(
         default=None,
