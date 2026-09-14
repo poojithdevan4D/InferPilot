@@ -193,6 +193,10 @@ def run_experiment(
 
     result: Optional[ExperimentResult] = None
     timer = PhaseTimer()
+    # Set once the measured window completes; stays set even if a later
+    # aggregation/finalization step fails, so phase timing keeps the real
+    # measured duration on FAILED finalization paths.
+    measured_duration_s: Optional[float] = None
     try:
         timer.launch()
         server.start()
@@ -310,6 +314,9 @@ def run_experiment(
 
             try:
                 warmups, measured, duration_s, telemetry, samples, arrivals = asyncio.run(_run_all())
+                # Measured window finished; retain its duration for phase timing
+                # even if aggregation/finalization below raises.
+                measured_duration_s = duration_s
             except _WarmupFailed as wf:
                 # Preserve warm-up diagnostics as a separate artifact; never mix
                 # warm-ups into measured aggregates.
@@ -364,27 +371,27 @@ def run_experiment(
         # so intentional-teardown noise is not confused with startup/measurement
         # failures. Logs are classified, never suppressed.
         timer.mark("teardown_start")
-        server.stop()
+        # A stop() error must never prevent result/phase persistence or leave the
+        # teardown boundary unrecorded.
+        try:
+            server.stop()
+        except Exception:  # best-effort cleanup; boundary still recorded below
+            pass
         timer.mark("teardown_end")
         try:
             write_lifecycle(run_dir, server.classify_log_errors())
-        except (OSError, FileExistsError):
+        except (OSError, FileExistsError, ValueError):
             pass
         if result is not None:
             write_result(run_dir, result)
         # Phase timing is written AFTER cleanup on every terminal path, without
         # weakening always-cleanup behavior (its failure never masks the result).
+        # aggregate_duration_s is bound to a completed measured window, not to a
+        # COMPLETED terminal status, so it survives finalization failures.
         if timer.started:
             try:
-                agg_duration = (
-                    result.aggregates.duration_s
-                    if result is not None
-                    and result.status is ExperimentStatus.COMPLETED
-                    and result.aggregates is not None
-                    else None
-                )
                 terminal = result.status.value if result is not None else "failed"
-                write_phases(run_dir, timer.build(terminal, agg_duration))
+                write_phases(run_dir, timer.build(terminal, measured_duration_s))
             except (OSError, FileExistsError, ValueError):
                 pass
 

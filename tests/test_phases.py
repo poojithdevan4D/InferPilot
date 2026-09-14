@@ -67,11 +67,32 @@ def test_out_of_order_events_rejected() -> None:
         RunnerPhaseTiming.model_validate(raw)
 
 
-def test_measured_completed_requires_completed_status() -> None:
+def test_failed_finalization_keeps_completed_measured_window() -> None:
+    # Measured window completed, but finalization began and did not finish, so
+    # the run ended FAILED. This must still validate and retain the measured
+    # duration bound to the completed window.
+    t = PhaseTimer()
+    t.launch()
+    origin = t._origin  # noqa: SLF001
+    for name, off in {"server_ready": 0.5, "config_verify_start": 0.6,
+                      "config_verify_end": 0.7, "measured_start": 1.0,
+                      "measured_end": 3.5, "finalize_start": 3.5,
+                      "teardown_start": 3.6, "teardown_end": 3.8}.items():
+        t.mark_at(name, origin + off)
+    timing = t.build("failed", aggregate_duration_s=2.5)
+    assert RunnerPhaseTiming.model_validate_json(timing.model_dump_json()) == timing
+    spans = {p.name: p for p in timing.phases}
+    assert spans["measured_window"].completed
+    assert spans["finalization"].began and not spans["finalization"].completed
+    assert timing.aggregate_duration_s == pytest.approx(2.5)
+
+
+def test_failed_without_measured_duration_is_rejected() -> None:
+    # If the measured window completed, aggregate_duration_s must be present.
     raw = _completed_timer().build("completed", aggregate_duration_s=2.5).model_dump(mode="json")
     raw["terminal_status"] = "failed"
     raw["aggregate_duration_s"] = None
-    with pytest.raises(ValidationError, match="measured_window completes iff"):
+    with pytest.raises(ValidationError, match="present iff the measured window completed"):
         RunnerPhaseTiming.model_validate(raw)
 
 

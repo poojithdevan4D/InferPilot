@@ -87,6 +87,31 @@ def test_warmup_failure_stops_before_measured(tmp_path) -> None:
     assert s["teardown"].completed
 
 
+def test_finalization_failure_still_persists_phases(tmp_path, monkeypatch) -> None:
+    # Inject a finalization failure AFTER the measured window completes: the run
+    # ends FAILED, cleanup still runs, and phases.json is present and valid with
+    # a completed measured window and a finalization that began but never finished.
+    import inferpilot.runner.orchestrator as orch
+
+    def _boom(*_a, **_k):
+        raise RuntimeError("injected finalization failure")
+
+    monkeypatch.setattr(orch, "write_telemetry", _boom)
+
+    cfg = _config(2, 1)
+    result = run_experiment(cfg, str(tmp_path), command_builder=_builder("normal"),
+                            ready_timeout_s=15.0)
+    assert result.status.value == "failed"
+    run_dir = list(tmp_path.iterdir())[0]
+    timing = _timing(run_dir)  # phases.json exists and self-validates
+    assert timing.terminal_status == "failed"
+    s = _spans(timing)
+    assert s["measured_window"].completed
+    assert s["finalization"].began and not s["finalization"].completed
+    assert s["teardown"].completed  # cleanup completed
+    assert timing.aggregate_duration_s is not None
+
+
 def test_measurement_failure_still_completes_window(tmp_path) -> None:
     # error500 with no warm-up: measured window runs to completion though every
     # request fails -> COMPLETED (orchestration finished).

@@ -129,19 +129,24 @@ class RunnerPhaseTiming(SchemaModel):
             raise ValueError("teardown and total_occupancy must complete on every path")
 
         completed = self.terminal_status == "completed"
-        # Measurement fully running implies a COMPLETED terminal status.
-        if spans["measured_window"].completed != completed:
-            raise ValueError("measured_window completes iff the run COMPLETED")
-        if (self.aggregate_duration_s is not None) != completed:
-            raise ValueError("aggregate_duration_s is present iff the run COMPLETED")
-
-        if completed:
-            for required in ("server_startup", "config_verification", "finalization"):
-                if not spans[required].completed:
-                    raise ValueError(f"{required} must complete on a COMPLETED run")
+        measured_done = spans["measured_window"].completed
+        # A COMPLETED run requires a finished measured window. The converse does
+        # NOT hold: the measured window may complete and the run still end FAILED
+        # if aggregation or artifact finalization fails afterward.
+        if completed and not measured_done:
+            raise ValueError("a COMPLETED run must have a completed measured_window")
+        # aggregate_duration_s IS the measured-window duration, so it is available
+        # exactly when the measured window completed — regardless of terminal status.
+        if (self.aggregate_duration_s is not None) != measured_done:
+            raise ValueError("aggregate_duration_s is present iff the measured window completed")
+        if measured_done:
             measured = spans["measured_window"].duration_s
             if abs(measured - self.aggregate_duration_s) > _AGGREGATE_TOLERANCE_S:
                 raise ValueError(
                     "measured_window duration must agree with AggregateMetrics.duration_s"
                 )
+        if completed:
+            for required in ("server_startup", "config_verification", "finalization"):
+                if not spans[required].completed:
+                    raise ValueError(f"{required} must complete on a COMPLETED run")
         return self
