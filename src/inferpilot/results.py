@@ -18,9 +18,11 @@ from pydantic import Field, model_validator
 
 from ._base import SchemaModel, VersionedSchemaModel
 from .config import ExperimentConfig
+from .effective import EffectiveConfig
 from .environment import EnvironmentMetadata
 from .measurements import RequestMeasurement
 from .status import ExperimentStatus, FailureRecord
+from .telemetry import ResourceTelemetry
 
 
 class AggregateMetrics(SchemaModel):
@@ -116,6 +118,10 @@ class ExperimentResult(VersionedSchemaModel):
     aggregates: Optional[AggregateMetrics] = Field(default=None)
     failure: Optional[FailureRecord] = Field(default=None)
 
+    # Resolved-at-startup config (what actually ran) and measured-window telemetry.
+    effective_config: Optional[EffectiveConfig] = Field(default=None)
+    telemetry: Optional[ResourceTelemetry] = Field(default=None)
+
     started_at: Optional[datetime] = Field(default=None)
     finished_at: Optional[datetime] = Field(default=None)
 
@@ -147,6 +153,16 @@ class ExperimentResult(VersionedSchemaModel):
         if agg.num_successful != expected or agg.num_failed != 0:
             return False
 
+        effective = self.effective_config
+        if effective is None or not effective.verified or effective.unverified_fields:
+            return False
+
+        telemetry = self.telemetry
+        if telemetry is None or telemetry.num_samples < 1 or telemetry.error is not None:
+            return False
+        if agg.gpu_memory_peak_mb != telemetry.peak_gpu_memory_mb:
+            return False
+
         required_metrics = (
             agg.ttft_p50_ms,
             agg.ttft_p95_ms,
@@ -159,6 +175,12 @@ class ExperimentResult(VersionedSchemaModel):
             agg.e2e_p99_ms,
             agg.throughput_tokens_per_s,
             agg.throughput_requests_per_s,
+            agg.gpu_memory_peak_mb,
+            telemetry.peak_gpu_memory_mb,
+            telemetry.gpu_utilization_mean_pct,
+            telemetry.gpu_utilization_peak_pct,
+            telemetry.kv_cache_usage_mean_perc,
+            telemetry.kv_cache_usage_peak_perc,
         )
         return all(v is not None for v in required_metrics)
 

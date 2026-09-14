@@ -49,6 +49,17 @@ class _Handler(BaseHTTPRequestHandler):
             self.send_response(200)
             self.end_headers()
             self.wfile.write(b"OK")
+        elif self.path.startswith("/metrics"):
+            kv = getattr(self.server, "kv_usage", 0.42)  # type: ignore[attr-defined]
+            body = (
+                "# HELP vllm:kv_cache_usage_perc KV-cache usage.\n"
+                "# TYPE vllm:kv_cache_usage_perc gauge\n"
+                f'vllm:kv_cache_usage_perc{{model_name="fake"}} {kv}\n'
+            ).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain; version=0.0.4")
+            self.end_headers()
+            self.wfile.write(body)
         else:
             self.send_response(404)
             self.end_headers()
@@ -98,19 +109,22 @@ class _Handler(BaseHTTPRequestHandler):
 class _FakeServer(ThreadingHTTPServer):
     daemon_threads = True
 
-    def __init__(self, addr, mode: str, output_tokens: int, prompt_tokens: int) -> None:
+    def __init__(
+        self, addr, mode: str, output_tokens: int, prompt_tokens: int, kv_usage: float = 0.42
+    ) -> None:
         super().__init__(addr, _Handler)
         self.mode = mode
         self.output_tokens = output_tokens
         self.prompt_tokens = prompt_tokens
+        self.kv_usage = kv_usage
 
 
 @contextlib.contextmanager
 def serve_in_thread(
-    mode: str = "normal", output_tokens: int = 8, prompt_tokens: int = 128
+    mode: str = "normal", output_tokens: int = 8, prompt_tokens: int = 128, kv_usage: float = 0.42
 ) -> Iterator[str]:
     """Start the fake server on a free port in a daemon thread; yield base_url."""
-    server = _FakeServer(("127.0.0.1", 0), mode, output_tokens, prompt_tokens)
+    server = _FakeServer(("127.0.0.1", 0), mode, output_tokens, prompt_tokens, kv_usage)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
@@ -121,12 +135,35 @@ def serve_in_thread(
         server.server_close()
 
 
+def _emit_effective_config(prefix_caching: str) -> None:
+    """Print vLLM-like startup lines to stdout so the runner can parse them."""
+    sys.stdout.write(
+        "INFO api_utils.py:286] non-default args: "
+        "{'host': '127.0.0.1', 'model': 'fake/model', 'revision': 'deadbeef', "
+        "'max_model_len': 2048, 'gpu_memory_utilization': 0.85, 'max_num_seqs': 1, "
+        "'generation_config': 'vllm'}\n"
+    )
+    sys.stdout.write(
+        "INFO core.py:123] Initializing a V1 LLM engine (v0.29.0) with config: "
+        "model='fake/model', revision=deadbeef, max_seq_len=2048, "
+        f"enable_prefix_caching={prefix_caching}, enable_chunked_prefill=True, "
+        "kv_cache_dtype=auto, seed=0\n"
+    )
+    sys.stdout.flush()
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--port", type=int, required=True)
     parser.add_argument("--mode", default="normal")
     parser.add_argument("--output-tokens", type=int, default=8)
     parser.add_argument("--prompt-tokens", type=int, default=128)
+    parser.add_argument("--kv-usage", type=float, default=0.42)
+    parser.add_argument(
+        "--emit-effective",
+        default=None,
+        help="Emit a fake resolved-config log with enable_prefix_caching=True|False.",
+    )
     args = parser.parse_args(argv)
 
     if args.mode == "startup_crash":
@@ -138,7 +175,12 @@ def main(argv: list[str] | None = None) -> int:
         sys.stderr.flush()
         return 1
 
-    server = _FakeServer(("127.0.0.1", args.port), args.mode, args.output_tokens, args.prompt_tokens)
+    if args.emit_effective is not None:
+        _emit_effective_config(args.emit_effective)
+
+    server = _FakeServer(
+        ("127.0.0.1", args.port), args.mode, args.output_tokens, args.prompt_tokens, args.kv_usage
+    )
     try:
         server.serve_forever()
     except KeyboardInterrupt:

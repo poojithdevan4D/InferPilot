@@ -32,6 +32,7 @@ def _builder(mode: str, output_tokens: int = 8):
             "--port", str(port),
             "--mode", mode,
             "--output-tokens", str(output_tokens),
+            "--emit-effective", "False",
         ]
     return build
 
@@ -40,7 +41,14 @@ def _config(num_requests: int = 3, warmup: int = 1, output_tokens: int = 8) -> E
     return ExperimentConfig(
         experiment_id="exp-orch",
         name="orch-test",
-        engine=EngineConfig(model="fake/model", revision="deadbeef", max_num_seqs=1),
+        engine=EngineConfig(
+            model="fake/model",
+            revision="deadbeef",
+            max_model_len=2048,
+            max_num_seqs=1,
+            gpu_memory_utilization=0.85,
+            enable_prefix_caching=False,
+        ),
         workload=WorkloadSpec(
             name="w", num_requests=num_requests, warmup_requests=warmup,
             prompt_tokens=128, output_tokens=output_tokens,
@@ -56,7 +64,9 @@ def test_completed_run_produces_immutable_result(tmp_path) -> None:
     )
 
     assert result.status is ExperimentStatus.COMPLETED
-    assert result.is_baseline_eligible is True
+    # Core test environment intentionally lacks NVML, so request execution is
+    # valid but the result cannot be promoted to a resource-complete baseline.
+    assert result.is_baseline_eligible is False
     assert result.aggregates is not None
     # warm-up (1) excluded; only the 3 measured requests are aggregated.
     assert result.aggregates.num_requests == 3
@@ -76,6 +86,50 @@ def test_completed_run_produces_immutable_result(tmp_path) -> None:
     assert (run_dirs[0] / "server.stdout.log").exists()
     with pytest.raises(PermissionError):
         result_file.open("w")
+
+    # telemetry present (KV scraped from the fake /metrics; NVML absent in test env)
+    assert result.telemetry is not None
+    assert result.telemetry.num_samples >= 1
+    assert result.telemetry.kv_cache_usage_peak_perc == 0.42
+    assert (run_dirs[0] / "telemetry.json").exists()
+    # lifecycle classification written; fake server emits no ERROR lines
+    lifecycle = json.loads((run_dirs[0] / "lifecycle.json").read_text())
+    assert lifecycle["pre_teardown"] == []
+
+
+def test_config_fidelity_mismatch_fails_before_measurement(tmp_path) -> None:
+    # Server resolves enable_prefix_caching=True; we requested False -> mismatch.
+    cfg = ExperimentConfig(
+        experiment_id="exp-fid",
+        name="fid",
+        engine=EngineConfig(
+            model="fake/model", revision="deadbeef", max_model_len=2048, max_num_seqs=1,
+            gpu_memory_utilization=0.85, kv_cache_dtype="auto", enable_prefix_caching=False,
+        ),
+        workload=WorkloadSpec(
+            name="w", num_requests=4, warmup_requests=2, prompt_tokens=128,
+            output_tokens=8, max_concurrency=1, ignore_eos=True,
+        ),
+    )
+
+    def builder(port: int) -> list[str]:
+        return [
+            sys.executable, str(FAKE), "--port", str(port),
+            "--mode", "normal", "--emit-effective", "True",
+        ]
+
+    result = run_experiment(cfg, str(tmp_path), command_builder=builder, ready_timeout_s=15.0)
+    assert result.status is ExperimentStatus.FAILED
+    assert result.failure is not None
+    assert result.failure.error_type == "ConfigFidelityMismatch"
+    assert "enable_prefix_caching" in result.failure.message
+    # measurement never ran
+    assert result.measurements == []
+    assert result.aggregates is None
+    assert result.is_baseline_eligible is False
+    # resolved value captured for provenance
+    assert result.effective_config is not None
+    assert result.effective_config.enable_prefix_caching is True
 
 
 def test_request_failures_still_complete_with_failed_measurements(tmp_path) -> None:

@@ -6,10 +6,12 @@ from inferpilot import (
     AggregateMetrics,
     EngineConfig,
     EnvironmentMetadata,
+    EffectiveConfig,
     ExperimentConfig,
     ExperimentResult,
     ExperimentStatus,
     RequestMeasurement,
+    ResourceTelemetry,
     WorkloadSpec,
 )
 
@@ -37,7 +39,7 @@ def _full_metrics(num_requests: int, num_successful: int) -> AggregateMetrics:
         tpot_p50_ms=5.0, tpot_p95_ms=6.0, tpot_p99_ms=7.0,
         e2e_p50_ms=100.0, e2e_p95_ms=120.0, e2e_p99_ms=130.0,
         throughput_tokens_per_s=50.0, throughput_requests_per_s=2.0,
-        total_output_tokens=32,
+        total_output_tokens=32, gpu_memory_peak_mb=1024,
     )
 
 
@@ -47,6 +49,16 @@ def _result(status, aggregates, config=None) -> ExperimentResult:
         environment=EnvironmentMetadata(),
         status=status,
         aggregates=aggregates,
+        effective_config=EffectiveConfig(verified=True),
+        telemetry=ResourceTelemetry(
+            sample_interval_s=0.25,
+            num_samples=4,
+            peak_gpu_memory_mb=1024,
+            gpu_utilization_mean_pct=50,
+            gpu_utilization_peak_pct=75,
+            kv_cache_usage_mean_perc=0.1,
+            kv_cache_usage_peak_perc=0.2,
+        ),
     )
 
 
@@ -83,6 +95,32 @@ def test_missing_comparison_metric_is_ineligible() -> None:
 def test_missing_throughput_is_ineligible() -> None:
     agg = _full_metrics(4, 4).model_copy(update={"throughput_tokens_per_s": None})
     res = _result(ExperimentStatus.COMPLETED, agg)
+    assert res.is_baseline_eligible is False
+
+
+def test_unverified_effective_config_is_ineligible() -> None:
+    res = _result(ExperimentStatus.COMPLETED, _full_metrics(4, 4))
+    res.effective_config = EffectiveConfig(
+        verified=False, unverified_fields=["max_num_seqs"]
+    )
+    assert res.is_baseline_eligible is False
+
+
+def test_missing_or_incomplete_telemetry_is_ineligible() -> None:
+    res = _result(ExperimentStatus.COMPLETED, _full_metrics(4, 4))
+    res.telemetry = None
+    assert res.is_baseline_eligible is False
+
+    res = _result(ExperimentStatus.COMPLETED, _full_metrics(4, 4))
+    assert res.telemetry is not None
+    res.telemetry = res.telemetry.model_copy(update={"kv_cache_usage_peak_perc": None})
+    assert res.is_baseline_eligible is False
+
+
+def test_telemetry_error_is_ineligible() -> None:
+    res = _result(ExperimentStatus.COMPLETED, _full_metrics(4, 4))
+    assert res.telemetry is not None
+    res.telemetry = res.telemetry.model_copy(update={"error": "metrics_fetch_failed"})
     assert res.is_baseline_eligible is False
 
 

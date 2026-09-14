@@ -121,7 +121,7 @@ def test_cuda_runtime_and_toolkit_stay_separate() -> None:
 
 def test_old_schema_version_fails_clearly_config() -> None:
     raw = _config().model_dump()
-    raw["schema_version"] = "0.1.0"
+    raw["schema_version"] = "0.2.0"
     with pytest.raises(ValidationError, match="unsupported schema_version"):
         ExperimentConfig.model_validate(raw)
 
@@ -134,6 +134,6 @@ def test_old_schema_version_fails_clearly_result() -> None:
         failure={"status": "oom", "error_type": "CudaOOM", "message": "x"},
     )
     raw = result.model_dump()
-    raw["schema_version"] = "0.1.0"
+    raw["schema_version"] = "0.2.0"
     with pytest.raises(ValidationError, match="unsupported schema_version"):
         ExperimentResult.model_validate(raw)

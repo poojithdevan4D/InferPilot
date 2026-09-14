@@ -22,6 +22,7 @@ from .defaults import (
     DEFAULT_MODEL_REVISION,
     PINNED_VLLM_VERSION,
 )
+from .effective_config import check_fidelity, parse_effective_config
 from .hardware import discover_hardware, discover_toolchain
 from .orchestrator import capture_environment, run_experiment
 from .server import (
@@ -30,8 +31,10 @@ from .server import (
     ServerStartupError,
     build_server_env,
     build_vllm_command,
+    default_vllm_executable,
     find_free_port,
 )
+from .telemetry import TelemetrySampler
 from .workload_gen import GeneratedWorkload, generate_workload
 
 __all__ = [
@@ -40,6 +43,10 @@ __all__ = [
     "discover_hardware",
     "discover_toolchain",
     "build_server_env",
+    "default_vllm_executable",
+    "parse_effective_config",
+    "check_fidelity",
+    "TelemetrySampler",
     "compute_aggregates",
     "percentile",
     "GenerationParams",

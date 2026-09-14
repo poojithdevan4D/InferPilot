@@ -57,14 +57,19 @@ def _server(cmd, tmp_path, **kw) -> ManagedServer:
 # --- command building ------------------------------------------------------- #
 
 
-def test_build_vllm_command_is_shell_free_list() -> None:
+def test_build_vllm_command_uses_supported_serve_form() -> None:
     engine = EngineConfig(model="Qwen/Qwen2.5-0.5B-Instruct", revision="abc123", max_num_seqs=1)
     cmd = build_vllm_command(engine, port=8123, host="127.0.0.1")
     assert isinstance(cmd, list)
-    assert cmd[:3] == [sys.executable, "-m", "vllm.entrypoints.openai.api_server"]
-    assert "--model" in cmd and "Qwen/Qwen2.5-0.5B-Instruct" in cmd
+    # Supported non-deprecated CLI: `vllm serve <model>` (no `-m api_server`).
+    assert cmd[0].endswith("vllm")
+    assert cmd[1] == "serve"
+    assert cmd[2] == "Qwen/Qwen2.5-0.5B-Instruct"
+    assert "vllm.entrypoints.openai.api_server" not in cmd
     assert "--revision" in cmd and "abc123" in cmd
     assert "8123" in cmd
+    assert cmd[cmd.index("--generation-config") + 1] == "vllm"
+    assert float(cmd[cmd.index("--shutdown-timeout") + 1]) > 0
 
 
 def test_build_vllm_command_omits_revision_when_absent() -> None:
@@ -72,9 +77,59 @@ def test_build_vllm_command_omits_revision_when_absent() -> None:
     assert "--revision" not in cmd
 
 
+# --- explicit tri-state boolean mapping (true / false / default) ------------ #
+
+
+def _cmd(**engine_kwargs) -> list[str]:
+    return build_vllm_command(EngineConfig(model="m", **engine_kwargs), port=1)
+
+
+def test_prefix_caching_true_emits_enable_flag() -> None:
+    cmd = _cmd(enable_prefix_caching=True)
+    assert "--enable-prefix-caching" in cmd
+    assert "--no-enable-prefix-caching" not in cmd
+
+
+def test_prefix_caching_false_emits_no_flag() -> None:
+    cmd = _cmd(enable_prefix_caching=False)
+    assert "--no-enable-prefix-caching" in cmd
+    assert "--enable-prefix-caching" not in cmd
+
+
+def test_prefix_caching_default_omits_both() -> None:
+    cmd = _cmd()  # None => engine default
+    assert "--enable-prefix-caching" not in cmd
+    assert "--no-enable-prefix-caching" not in cmd
+
+
+def test_chunked_prefill_tristate() -> None:
+    assert "--enable-chunked-prefill" in _cmd(enable_chunked_prefill=True)
+    assert "--no-enable-chunked-prefill" in _cmd(enable_chunked_prefill=False)
+    default = _cmd()
+    assert "--enable-chunked-prefill" not in default
+    assert "--no-enable-chunked-prefill" not in default
+
+
 def test_find_free_port_returns_usable_port() -> None:
     port = find_free_port()
     assert isinstance(port, int) and 1024 <= port <= 65535
+
+
+def test_classify_log_errors_splits_at_teardown_boundary(tmp_path) -> None:
+    server = _server(SLEEPER, tmp_path)  # not started; drive classify directly
+    startup = "INFO ok\nERROR startup boom\n"
+    (tmp_path / "out.log").write_text(startup)
+    (tmp_path / "err.log").write_text("")
+    # Teardown boundary is the byte offset at SIGTERM time.
+    server._teardown_stdout_offset = len(startup)
+    server._teardown_stderr_offset = 0
+    server._teardown_started = True
+    with open(tmp_path / "out.log", "a") as fh:
+        fh.write("ERROR teardown noise\n")
+
+    result = server.classify_log_errors()
+    assert any("startup boom" in line for line in result["pre_teardown"])
+    assert result["teardown_count"] == 1  # teardown error not counted as pre-teardown
 
 
 # --- lifecycle cleanup ------------------------------------------------------ #

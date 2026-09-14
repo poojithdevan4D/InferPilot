@@ -14,7 +14,9 @@ from ._base import (
     VersionedSchemaModel,
 )
 from .config import EngineConfig, ExperimentConfig, SamplerBackend, SLO
+from .effective import EffectiveConfig
 from .environment import EnvironmentMetadata, HardwareInfo, ToolchainInfo
+from .telemetry import ResourceSample, ResourceTelemetry
 from .measurements import RequestMeasurement
 from .results import AggregateMetrics, ExperimentResult
 from .status import ExperimentStatus, FailureRecord
@@ -35,6 +37,9 @@ __all__ = [
     "EnvironmentMetadata",
     "HardwareInfo",
     "ToolchainInfo",
+    "EffectiveConfig",
+    "ResourceSample",
+    "ResourceTelemetry",
     "RequestMeasurement",
     "AggregateMetrics",
     "ExperimentResult",

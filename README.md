@@ -12,7 +12,7 @@ This repository contains the validated, serializable data contracts **and** the 
 vertical slice of the benchmark runner (`inferpilot.runner`): start a vLLM server, run a
 fixed characterization workload, measure raw per-request timings, aggregate, and store one
 immutable result. There is deliberately still **no** optimization/search, SLO evaluation,
-GPU profiling, distributed execution, database, web UI, or LLM-driven decision logic.
+distributed execution, database, web UI, or LLM-driven decision logic.
 
 The runner does **not** wrap or parse `vllm bench` — InferPilot owns its raw request
 measurements end to end.
@@ -23,29 +23,32 @@ measurements end to end.
 ExperimentConfig  (model + engine knobs + workload)
       │
       ▼
-capture EnvironmentMetadata  (host + software stack; no GPU polling yet)
+capture EnvironmentMetadata  (host + software/toolchain snapshot)
       │
       ▼
 start vLLM server (shell-free subprocess, /health readiness poll)   # runner.server
       │
       ▼
+verify resolved vLLM configuration against requested configuration
+      │
+      ▼
 warm-up requests (excluded)  →  measured workload                   # runner.client
       │  (async streaming /v1/completions, monotonic TTFT/e2e/TPOT)
       ▼
-AggregateMetrics  (TTFT/TPOT/e2e percentiles, throughput)           # runner.aggregate
+AggregateMetrics + measured-window GPU/KV telemetry
       │
       ▼
 ExperimentResult  (config + environment + measurements + aggregates + status/failure)
       │
       ▼
-write immutable result.json + server logs into a unique run dir     # runner.artifacts
+write immutable result/warmup/telemetry/lifecycle artifacts + logs
 ```
 
 Every result is losslessly JSON-serializable so it can be stored, reloaded, and compared as
 ground truth. Failure outcomes are first-class: `FAILED`, `OOM`, and `TIMEOUT` produce a
-structured result with a populated `FailureRecord`. Only a `COMPLETED` result is eligible as
-a baseline / optimization signal (`ExperimentResult.is_baseline_eligible`); partial
-aggregates from a failed run may be stored but must not be compared.
+structured result with a populated `FailureRecord`. Baseline eligibility additionally
+requires every request to succeed, a fully verified effective configuration, all comparison
+metrics, and complete GPU/KV telemetry. Partial results may be stored but must not be compared.
 
 **Timing:** all durations and latencies use a **monotonic** clock. Wall-clock timestamps are
 recorded only for provenance (`started_at`/`finished_at`) and never used for any duration.
@@ -65,6 +68,8 @@ src/inferpilot/
   _base.py         # SchemaModel base (strict, lossless JSON) + SCHEMA_VERSION
   config.py        # ExperimentConfig, EngineConfig (MVP knobs), SLO
   environment.py   # EnvironmentMetadata, HardwareInfo
+  effective.py     # resolved vLLM configuration contract
+  telemetry.py     # raw resource sample + telemetry summary contracts
   workload.py      # WorkloadSpec
   measurements.py  # RequestMeasurement (per-request ground truth)
   results.py       # AggregateMetrics, ExperimentResult
@@ -76,6 +81,8 @@ src/inferpilot/
     client.py        # async streaming measurement client (/v1/completions)
     aggregate.py     # pure percentile + aggregate computation
     artifacts.py     # unique run dir + immutable result JSON
+    effective_config.py # startup-log parsing + requested/resolved fidelity checks
+    telemetry.py     # measured-window NVML + vLLM KV-cache sampling
     orchestrator.py  # glue: COMPLETED / FAILED / OOM / TIMEOUT
     __main__.py      # CLI: python -m inferpilot.runner <config.json>
 examples/
@@ -89,6 +96,8 @@ tests/
   test_client.py           # integration: streaming client vs fake server
   test_server_lifecycle.py # subprocess lifecycle + guaranteed cleanup
   test_orchestrator.py     # end-to-end runner vs fake server + artifacts
+  test_effective_config.py # effective-config parsing + fidelity checks
+  test_telemetry.py        # resource sampling + graceful degradation
 ```
 
 ## Quickstart
@@ -162,6 +171,7 @@ Pinned runtime decisions (see `inferpilot/runner/defaults.py`):
 | Workload | 4 warm-up + 32 measured, ~128 in / 32 out tokens, closed-loop c=1 |
 | Generation | greedy (`temperature=0`), `ignore_eos` + `min_tokens=32` (controlled length) |
 | Sampler | `sampler_backend=pytorch` (→ `VLLM_USE_FLASHINFER_SAMPLER=0`) |
+| Generation defaults | `generation_config=vllm` (ignore model-provided sampling defaults) |
 
 > **Sampler backend & the FlashInfer/nvcc issue.** On this box, FlashInfer 0.6.18's sampler
 > JIT invokes the local CUDA **12.4** `nvcc` with `--compress-mode=size` (an nvcc ≥12.6/13
@@ -173,10 +183,10 @@ Pinned runtime decisions (see `inferpilot/runner/defaults.py`):
 
 ### Schema version
 
-The result schema is **`0.2.0`**. It changed materially vs `0.1.0` (CUDA provenance split into
-distinct driver/torch/nvcc fields; sampler backend + applied env overrides recorded). There is
-**no in-place migration**: loading a `0.1.0` artifact fails loudly (`unsupported schema_version`)
-rather than being reinterpreted. Re-run to produce a `0.2.0` artifact.
+The result schema is **`0.3.0`**. Version `0.2.0` added split CUDA provenance and the sampler
+backend; `0.3.0` adds resolved-configuration evidence and measured-window resource telemetry.
+There is **no in-place migration**: older artifacts fail loudly rather than being
+reinterpreted. Re-run to produce a `0.3.0` artifact.
 
 ## Unresolved decisions
 
@@ -214,17 +224,18 @@ depends on them:
   `ExperimentResult.is_baseline_eligible`, which requires: status `COMPLETED`,
   aggregates present, `num_requests == config.workload.num_requests`, all
   requests succeeded (`num_failed == 0`), and every comparison metric
-  (ttft/tpot/e2e p50·p95·p99 + both throughputs) populated. `FAILED`/`OOM`/
+  (ttft/tpot/e2e p50·p95·p99 + both throughputs) populated, plus a verified effective
+  configuration and complete measured-window GPU/KV telemetry. `FAILED`/`OOM`/
   `TIMEOUT` and partial/all-failed runs are ineligible but may still store partial
   aggregates.
 - **Warm-up failure aborts before measuring.** If any warm-up request fails, the
   runner stops and emits a `FAILED` result with error type `WarmupFailure`; warm-up
   measurements are preserved in a separate `warmup.json` artifact and never mixed
   into measured aggregates.
-- **Hardware snapshot is one-time + best-effort.** GPU/CPU/RAM + driver/CUDA and
-  Python/PyTorch/vLLM versions are captured once at run start; missing tooling
-  (e.g. no `nvidia-smi`) degrades to `null` fields rather than aborting. No
-  continuous GPU polling.
+- **Hardware snapshot + measured telemetry.** GPU/CPU/RAM + driver/CUDA and
+  Python/PyTorch/vLLM versions are captured once at run start. During the measured
+  window only, a background sampler records GPU memory/utilization through NVML and
+  `vllm:kv_cache_usage_perc` every 250 ms. Raw samples are retained in `telemetry.json`.
 - **Zero-duration aggregates.** A completed/aggregated run over ≥ 1 request must
   have `duration_s > 0`; zero duration is valid only for an empty
   (`num_requests == 0`) aggregate.
@@ -234,7 +245,7 @@ depends on them:
   stderr for CUDA OOM signatures; a never-ready server is `TIMEOUT` (or `OOM` if
   the log shows an OOM). Revisit if signatures prove unreliable across vLLM versions.
 - **Schema versioning is exact-match.** `SUPPORTED_SCHEMA_VERSIONS` is currently
-  `{"0.1.0"}`; loading any other version fails loudly. There is no migration /
+  `{"0.3.0"}`; loading any other version fails loudly. There is no migration /
   upgrade path yet — one will be needed before the contract changes.
 
 ## Hardware note

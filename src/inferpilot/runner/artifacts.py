@@ -16,11 +16,22 @@ from typing import Sequence
 
 from ..measurements import RequestMeasurement
 from ..results import ExperimentResult
+from ..telemetry import ResourceSample
 
 RESULT_FILENAME = "result.json"
 WARMUP_FILENAME = "warmup.json"
+TELEMETRY_FILENAME = "telemetry.json"
+LIFECYCLE_FILENAME = "lifecycle.json"
 SERVER_STDOUT_FILENAME = "server.stdout.log"
 SERVER_STDERR_FILENAME = "server.stderr.log"
+
+
+def _write_immutable_json(path: Path, payload) -> Path:
+    if path.exists():
+        raise FileExistsError(f"{path} already exists; artifacts are immutable")
+    path.write_text(json.dumps(payload, indent=2))
+    path.chmod(stat.S_IRUSR | stat.S_IRGRP | stat.S_IROTH)
+    return path
 
 
 def create_run_dir(base_dir: str | os.PathLike[str], experiment_id: str) -> Path:
@@ -54,6 +65,17 @@ def write_warmup(run_dir: Path, measurements: Sequence[RequestMeasurement]) -> P
     payload = [m.model_dump(mode="json") for m in measurements]
     path.write_text(json.dumps(payload, indent=2))
     return path
+
+
+def write_telemetry(run_dir: Path, samples: Sequence[ResourceSample]) -> Path:
+    """Persist raw telemetry samples as an immutable artifact."""
+    payload = [s.model_dump(mode="json") for s in samples]
+    return _write_immutable_json(run_dir / TELEMETRY_FILENAME, payload)
+
+
+def write_lifecycle(run_dir: Path, lifecycle: dict) -> Path:
+    """Persist the teardown-vs-startup/measurement error classification."""
+    return _write_immutable_json(run_dir / LIFECYCLE_FILENAME, lifecycle)
 
 
 def write_result(run_dir: Path, result: ExperimentResult) -> Path:

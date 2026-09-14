@@ -23,9 +23,19 @@ from ..environment import EnvironmentMetadata
 from ..measurements import RequestMeasurement
 from ..results import AggregateMetrics, ExperimentResult
 from ..status import ExperimentStatus, FailureRecord
+from ..effective import EffectiveConfig
+from ..telemetry import ResourceTelemetry
 from .aggregate import compute_aggregates
-from .artifacts import create_run_dir, server_log_paths, write_result, write_warmup
+from .artifacts import (
+    create_run_dir,
+    server_log_paths,
+    write_lifecycle,
+    write_result,
+    write_telemetry,
+    write_warmup,
+)
 from .client import GenerationParams, run_requests
+from .effective_config import check_fidelity, parse_effective_config
 from .hardware import discover_hardware, discover_toolchain
 from .server import (
     ManagedServer,
@@ -35,6 +45,7 @@ from .server import (
     build_vllm_command,
     find_free_port,
 )
+from .telemetry import TelemetrySampler
 from .workload_gen import generate_workload
 
 CommandBuilder = Callable[[int], list[str]]
@@ -102,6 +113,7 @@ def _failure_result(
     traceback: Optional[str] = None,
     measurements: Optional[list] = None,
     aggregates: Optional[AggregateMetrics] = None,
+    effective_config: Optional[EffectiveConfig] = None,
 ) -> ExperimentResult:
     return ExperimentResult(
         config=config,
@@ -109,6 +121,7 @@ def _failure_result(
         status=status,
         measurements=measurements or [],
         aggregates=aggregates,
+        effective_config=effective_config,
         failure=FailureRecord(
             status=status,
             error_type=error_type,
@@ -203,11 +216,32 @@ def run_experiment(
             )
 
         if ready:
+            # Configuration fidelity: verify what vLLM actually resolved vs what
+            # we asked for. Do not trust the input config to describe what ran.
+            log_text = server.read_stdout() + "\n" + server.read_stderr()
+            effective = parse_effective_config(log_text)
+            mismatches, unverified = check_fidelity(config.engine, effective)
+            effective = effective.model_copy(
+                update={
+                    "unverified_fields": unverified,
+                    "verified": not mismatches and not unverified,
+                }
+            )
+
+        if ready and (mismatches or unverified):
+            # Fail BEFORE measurement — a config drift invalidates the benchmark.
+            result = _failure_result(
+                config, environment, ExperimentStatus.FAILED, "ConfigFidelityMismatch",
+                "resolved config could not be verified: "
+                + "; ".join(mismatches + [f"{field}: unresolved" for field in unverified]),
+                started_at, effective_config=effective,
+            )
+        elif ready:
             gen = generate_workload(workload)
             params = _generation_params(config, request_timeout_s)
             concurrency = workload.max_concurrency or 1
 
-            async def _run_all() -> tuple[list, list, float]:
+            async def _run_all() -> tuple[list, list, float, ResourceTelemetry, list]:
                 t0 = monotonic()
                 warmups: list[RequestMeasurement] = []
                 if gen.warmup_prompts:
@@ -219,16 +253,22 @@ def run_experiment(
                     # enough to trust measured timing — stop before measuring.
                     if any(not m.success for m in warmups):
                         raise _WarmupFailed(warmups)
-                m_start = monotonic()
-                measured = await run_requests(
-                    server.base_url, gen.measured_prompts, params,
-                    t0=t0, max_concurrency=concurrency, id_prefix="measured",
-                )
-                m_end = monotonic()
-                return warmups, measured, (m_end - m_start)
+                # Telemetry samples ONLY the measured window (not warm-up/startup).
+                sampler = TelemetrySampler(server.base_url, t0=t0)
+                try:
+                    m_start = monotonic()
+                    sampler.start()
+                    measured = await run_requests(
+                        server.base_url, gen.measured_prompts, params,
+                        t0=t0, max_concurrency=concurrency, id_prefix="measured",
+                    )
+                    m_end = monotonic()
+                finally:
+                    telemetry = sampler.stop()
+                return warmups, measured, (m_end - m_start), telemetry, sampler.samples
 
             try:
-                warmups, measured, duration_s = asyncio.run(_run_all())
+                warmups, measured, duration_s, telemetry, samples = asyncio.run(_run_all())
             except _WarmupFailed as wf:
                 # Preserve warm-up diagnostics as a separate artifact; never mix
                 # warm-ups into measured aggregates.
@@ -239,18 +279,24 @@ def run_experiment(
                     config, environment, ExperimentStatus.FAILED, "WarmupFailure",
                     f"{len(failed)}/{len(wf.measurements)} warm-up request(s) failed "
                     f"before measured execution; first error: {first_error}",
-                    started_at,
+                    started_at, effective_config=effective,
                 )
             else:
                 if warmups:
                     write_warmup(run_dir, warmups)
+                write_telemetry(run_dir, samples)
                 aggregates = compute_aggregates(measured, duration_s)
+                aggregates = aggregates.model_copy(
+                    update={"gpu_memory_peak_mb": telemetry.peak_gpu_memory_mb}
+                )
                 result = ExperimentResult(
                     config=config,
                     environment=environment,
                     status=ExperimentStatus.COMPLETED,
                     measurements=measured,
                     aggregates=aggregates,
+                    effective_config=effective,
+                    telemetry=telemetry,
                     started_at=started_at,
                     finished_at=_now(),
                 )
@@ -269,7 +315,14 @@ def run_experiment(
                 str(exc), started_at, traceback=_tb.format_exc(),
             )
     finally:
+        # stop() records the teardown boundary; classify errors before vs after it
+        # so intentional-teardown noise is not confused with startup/measurement
+        # failures. Logs are classified, never suppressed.
         server.stop()
+        try:
+            write_lifecycle(run_dir, server.classify_log_errors())
+        except (OSError, FileExistsError):
+            pass
         if result is not None:
             write_result(run_dir, result)
 

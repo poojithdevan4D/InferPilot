@@ -17,6 +17,7 @@ from pydantic import Field
 from ._base import SchemaModel, VersionedSchemaModel
 
 SamplerBackend = Literal["auto", "flashinfer", "pytorch"]
+GenerationConfigSource = Literal["auto", "vllm"]
 
 
 class EngineConfig(SchemaModel):
@@ -58,11 +59,20 @@ class EngineConfig(SchemaModel):
     kv_cache_dtype: str = Field(
         default="auto", description="KV-cache dtype, e.g. 'auto', 'fp8'."
     )
-    enable_prefix_caching: bool = Field(
-        default=False, description="Reuse shared prompt prefixes across requests."
+    enable_prefix_caching: Optional[bool] = Field(
+        default=None,
+        description=(
+            "Reuse shared prompt prefixes across requests. True => "
+            "--enable-prefix-caching, False => --no-enable-prefix-caching, "
+            "None => omit (engine default). None is NOT the same as False."
+        ),
     )
     enable_chunked_prefill: Optional[bool] = Field(
-        default=None, description="Split large prefills into chunks. None => engine default."
+        default=None,
+        description=(
+            "Split large prefills into chunks. True => --enable-chunked-prefill, "
+            "False => --no-enable-chunked-prefill, None => omit (engine default)."
+        ),
     )
 
     sampler_backend: SamplerBackend = Field(
@@ -71,6 +81,14 @@ class EngineConfig(SchemaModel):
             "Which sampler vLLM should use. 'pytorch' sets child-process "
             "VLLM_USE_FLASHINFER_SAMPLER=0 (native sampler, no FlashInfer JIT); "
             "'flashinfer' sets it to 1; 'auto' leaves the variable unset (engine default)."
+        ),
+    )
+    generation_config: GenerationConfigSource = Field(
+        default="vllm",
+        description=(
+            "Generation-default source passed to vLLM. 'vllm' prevents a model's "
+            "generation_config.json from silently changing sampling parameters; "
+            "'auto' accepts model-provided defaults."
         ),
     )
 
