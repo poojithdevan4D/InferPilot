@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 from pathlib import Path
 
 from ..comparison.models import BlockedStudyReport
@@ -15,11 +16,22 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("source", type=Path, help="complete BlockedStudyReport JSON")
     parser.add_argument("spec", type=Path, help="ReplaySearchSpec JSON")
     parser.add_argument("--output", type=Path)
+    parser.add_argument(
+        "--candidate-costs", type=Path,
+        help="optional JSON list of per-candidate server-process-seconds (enables cost-aware mode)",
+    )
+    parser.add_argument(
+        "--cost-budget", type=float, default=None,
+        help="optional server-process-seconds budget (requires --candidate-costs)",
+    )
     args = parser.parse_args(argv)
 
     source = BlockedStudyReport.model_validate_json(args.source.read_text())
     spec = ReplaySearchSpec.model_validate_json(args.spec.read_text())
-    report = evaluate_replay_search(source, spec)
+    costs = json.loads(args.candidate_costs.read_text()) if args.candidate_costs else None
+    report = evaluate_replay_search(
+        source, spec, candidate_costs_s=costs, cost_budget_s=args.cost_budget
+    )
     payload = report.model_dump_json(indent=2)
     if args.output is not None:
         if args.output.exists():

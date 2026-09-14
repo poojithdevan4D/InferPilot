@@ -2,19 +2,69 @@
 
 from __future__ import annotations
 
+from typing import Optional
+
 from ..comparison.models import BlockedStudyReport
-from .models import ReplaySearchReport, ReplaySearchSpec, ReplayTrial
+from .models import (
+    ReplayCostReport,
+    ReplayCostTrial,
+    ReplaySearchReport,
+    ReplaySearchSpec,
+    ReplayTrial,
+)
 from .policy import candidate_order
 
 
+def _build_cost_overlay(
+    order: list[int], candidate_costs_s: list[float], budget: int, cost_budget_s: Optional[float]
+) -> ReplayCostReport:
+    """Overlay realized per-trial cost onto the fixed policy order (no reordering)."""
+    trials: list[ReplayCostTrial] = []
+    cumulative = 0.0
+    for number, index in enumerate(order, 1):
+        step = float(candidate_costs_s[index])
+        if cost_budget_s is not None and cumulative + step > cost_budget_s:
+            break  # cannot afford this trial; stop (candidate budget still preserved)
+        cumulative += step
+        trials.append(
+            ReplayCostTrial(
+                trial_number=number,
+                candidate_index=index,
+                server_process_seconds=step,
+                cumulative_server_process_seconds=cumulative,
+            )
+        )
+    capped = cost_budget_s is not None and len(trials) < budget
+    return ReplayCostReport(
+        candidate_budget=budget,
+        cost_budget_s=cost_budget_s,
+        trials=trials,
+        affordable_trials=len(trials),
+        total_server_process_seconds=cumulative,
+        stopped_on="cost_budget" if capped else "candidate_budget",
+    )
+
+
 def evaluate_replay_search(
-    source: BlockedStudyReport, spec: ReplaySearchSpec
+    source: BlockedStudyReport,
+    spec: ReplaySearchSpec,
+    *,
+    candidate_costs_s: Optional[list[float]] = None,
+    cost_budget_s: Optional[float] = None,
 ) -> ReplaySearchReport:
-    """Reveal candidate outcomes in policy order, then score against the oracle."""
+    """Reveal candidate outcomes in policy order, then score against the oracle.
+
+    Cost-aware mode is enabled only when ``candidate_costs_s`` (realized
+    server-process-seconds per candidate, from timing evidence) is supplied; it
+    adds a SEPARATE cost budget/metric and never reorders the outcome-blind policy.
+    """
     count = len(source.candidates)
     if spec.budget > count:
         raise ValueError("search budget cannot exceed candidate count")
-    order = candidate_order(spec.policy, count, spec.seed)[: spec.budget]
+    if candidate_costs_s is None and cost_budget_s is not None:
+        raise ValueError("cost_budget_s requires candidate_costs_s (timing evidence)")
+    full_order = candidate_order(spec.policy, count, spec.seed)
+    order = full_order[: spec.budget]
     trials = [
         ReplayTrial(
             trial_number=number,
@@ -53,6 +103,12 @@ def evaluate_replay_search(
         regret = observed - oracle if direction == "lower_is_better" else oracle - observed
         regret = max(0.0, regret)
 
+    cost = None
+    if candidate_costs_s is not None:
+        if len(candidate_costs_s) != count:
+            raise ValueError("candidate_costs_s must provide one cost per candidate")
+        cost = _build_cost_overlay(order, candidate_costs_s, spec.budget, cost_budget_s)
+
     return ReplaySearchReport(
         spec=spec,
         source=source,
@@ -69,4 +125,5 @@ def evaluate_replay_search(
         oracle_best_candidate_indices=source.best_candidate_indices,
         oracle_hit=oracle_hit,
         simple_regret=regret,
+        cost=cost,
     )

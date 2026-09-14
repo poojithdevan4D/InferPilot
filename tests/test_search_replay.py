@@ -190,3 +190,51 @@ def test_report_rejects_independent_tampering(mutator, message) -> None:
     mutator(mutated)
     with pytest.raises(ValidationError, match=message):
         ReplaySearchReport.model_validate(mutated)
+
+
+# --- optional cost-aware overlay (M2C) -------------------------------------- #
+
+_COSTS = [1.0, 2.0, 3.0, 4.0]  # server-process-seconds per candidate
+
+
+def test_cost_overlay_metric_without_cap() -> None:
+    report = evaluate_replay_search(_source(), _spec(budget=3), candidate_costs_s=_COSTS)
+    assert report.cost is not None
+    assert report.cost.stopped_on == "candidate_budget"
+    assert report.cost.affordable_trials == 3
+    assert [t.candidate_index for t in report.cost.trials] == [0, 1, 2]
+    assert report.cost.total_server_process_seconds == 6.0  # 1+2+3
+
+
+def test_cost_budget_stops_before_candidate_budget() -> None:
+    report = evaluate_replay_search(
+        _source(), _spec(budget=3), candidate_costs_s=_COSTS, cost_budget_s=3.5
+    )
+    assert report.cost.stopped_on == "cost_budget"
+    assert [t.candidate_index for t in report.cost.trials] == [0, 1]  # 1+2=3<=3.5; +3 exceeds
+    assert report.cost.total_server_process_seconds == 3.0
+    # candidate-count replay is preserved regardless of the cost cap
+    assert [t.candidate_index for t in report.trials] == [0, 1, 2]
+
+
+def test_no_cost_args_leaves_cost_none() -> None:
+    report = evaluate_replay_search(_source(), _spec(budget=3))
+    assert report.cost is None
+
+
+def test_cost_budget_requires_costs() -> None:
+    with pytest.raises(ValueError, match="requires candidate_costs_s"):
+        evaluate_replay_search(_source(), _spec(budget=3), cost_budget_s=5.0)
+
+
+def test_wrong_length_costs_rejected() -> None:
+    with pytest.raises(ValueError, match="one cost per candidate"):
+        evaluate_replay_search(_source(), _spec(budget=3), candidate_costs_s=[1.0, 2.0])
+
+
+def test_tampered_cost_order_rejected() -> None:
+    report = evaluate_replay_search(_source(), _spec(budget=3), candidate_costs_s=_COSTS)
+    raw = report.model_dump(mode="json")
+    raw["cost"]["trials"][0]["candidate_index"] = 99  # break policy-order agreement
+    with pytest.raises(ValidationError, match="cost overlay order must match"):
+        ReplaySearchReport.model_validate(raw)

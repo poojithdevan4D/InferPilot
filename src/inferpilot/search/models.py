@@ -11,6 +11,7 @@ from ..comparison.models import BlockedStudyReport
 
 
 SEARCH_REPLAY_REPORT_VERSION = "0.1.0"
+COST_REPLAY_VERSION = "0.1.0"
 SearchPolicy = Literal["declared_order-v1", "seeded_random-v1"]
 ReplayStatus = Literal[
     "selected",
@@ -39,6 +40,60 @@ class ReplayTrial(SchemaModel):
     mean_objective_mean: float
 
 
+class ReplayCostTrial(SchemaModel):
+    """Realized server-process-seconds for one revealed trial, in policy order."""
+
+    trial_number: int = Field(ge=1)
+    candidate_index: int = Field(ge=0)
+    server_process_seconds: float = Field(ge=0)
+    cumulative_server_process_seconds: float = Field(ge=0)
+
+
+class ReplayCostReport(SchemaModel):
+    """Optional cost overlay: a SEPARATE GPU/server-process-seconds budget + metric.
+
+    The candidate order is the outcome-blind policy order (never reordered by
+    cost). Realized per-trial cost is external timing evidence (each run's
+    ``RunnerPhaseTiming.total_occupancy``). Cost is revealed only as each trial is
+    spent, in the same fixed order — the policy never sees an unmeasured
+    candidate's realized cost.
+    """
+
+    cost_version: Literal["0.1.0"] = "0.1.0"
+    cost_metric: Literal["server_process_seconds"] = "server_process_seconds"
+    candidate_budget: int = Field(ge=1)
+    cost_budget_s: Optional[float] = Field(default=None, gt=0)
+    trials: list[ReplayCostTrial] = Field(default_factory=list)
+    affordable_trials: int = Field(ge=0)
+    total_server_process_seconds: float = Field(ge=0)
+    stopped_on: Literal["candidate_budget", "cost_budget"]
+
+    @model_validator(mode="after")
+    def _check(self) -> "ReplayCostReport":
+        if self.cost_version != COST_REPLAY_VERSION:
+            raise ValueError("unsupported cost overlay version")
+        if self.affordable_trials != len(self.trials):
+            raise ValueError("affordable_trials must equal the number of cost trials")
+        if len(self.trials) > self.candidate_budget:
+            raise ValueError("cost trials cannot exceed the candidate budget")
+        cumulative = 0.0
+        for ordinal, trial in enumerate(self.trials, 1):
+            if trial.trial_number != ordinal:
+                raise ValueError("cost trial_number must be contiguous and one-based")
+            cumulative += trial.server_process_seconds
+            if trial.cumulative_server_process_seconds != cumulative:
+                raise ValueError("cumulative_server_process_seconds is inconsistent")
+            if self.cost_budget_s is not None and cumulative > self.cost_budget_s:
+                raise ValueError("a retained trial exceeds the cost budget")
+        if self.total_server_process_seconds != cumulative:
+            raise ValueError("total_server_process_seconds must equal the last cumulative")
+        capped = self.cost_budget_s is not None and len(self.trials) < self.candidate_budget
+        expected_stop = "cost_budget" if capped else "candidate_budget"
+        if self.stopped_on != expected_stop:
+            raise ValueError("stopped_on is inconsistent with the budgets")
+        return self
+
+
 class ReplaySearchReport(SchemaModel):
     """Self-validating fixed-budget replay against a complete blocked study.
 
@@ -61,6 +116,7 @@ class ReplaySearchReport(SchemaModel):
     oracle_best_candidate_indices: list[int] = Field(default_factory=list)
     oracle_hit: bool
     simple_regret: Optional[float] = Field(default=None, ge=0)
+    cost: Optional[ReplayCostReport] = None
     interpretation: str = (
         "Candidate order is fixed without access to outcomes. Each trial reveals one "
         "complete blocked-candidate result, whose cost is the source study's number "
@@ -171,4 +227,20 @@ class ReplaySearchReport(SchemaModel):
             expected_regret = max(0.0, expected_regret)
         if self.simple_regret != expected_regret:
             raise ValueError("simple_regret is inconsistent with replay and oracle")
+
+        # Optional cost overlay: its trials must be the outcome-blind policy-order
+        # prefix of the revealed trials (cost never reorders candidates).
+        if self.cost is not None:
+            if self.cost.candidate_budget != self.spec.budget:
+                raise ValueError("cost overlay candidate_budget must match the search budget")
+            if len(self.cost.trials) > len(self.trials):
+                raise ValueError("cost overlay cannot reveal more trials than the replay")
+            for cost_trial, trial in zip(self.cost.trials, self.trials):
+                if (
+                    cost_trial.trial_number != trial.trial_number
+                    or cost_trial.candidate_index != trial.candidate_index
+                ):
+                    raise ValueError(
+                        "cost overlay order must match the outcome-blind replay order"
+                    )
         return self
