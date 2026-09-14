@@ -39,7 +39,7 @@ class GeneratedWorkload:
 
 def generate_workload(workload: WorkloadSpec) -> GeneratedWorkload:
     """Deterministically build warm-up and measured prompts for ``workload``."""
-    rng = random.Random(workload.seed)
+    rng = random.Random(workload.effective_prompt_seed)
     warmup = [_make_prompt(rng, workload.prompt_tokens) for _ in range(workload.warmup_requests)]
     measured = [_make_prompt(rng, workload.prompt_tokens) for _ in range(workload.num_requests)]
     return GeneratedWorkload(warmup_prompts=warmup, measured_prompts=measured)

@@ -256,7 +256,8 @@ def run_experiment(
             open_loop = workload.request_rate_qps is not None
             scheduled_offsets = (
                 generate_poisson_offsets(
-                    workload.num_requests, workload.request_rate_qps, workload.seed
+                    workload.num_requests, workload.request_rate_qps,
+                    workload.effective_arrival_seed,
                 )
                 if open_loop
                 else None
@@ -293,7 +294,11 @@ def run_experiment(
                         arrivals = {
                             "algorithm": POISSON_VERSION,
                             "request_rate_qps": workload.request_rate_qps,
-                            "seed": workload.seed,
+                            # `seed` keeps its historical meaning: the seed that
+                            # produced these offsets (= the effective arrival seed;
+                            # identical to workload.seed for legacy 0.3.0 runs).
+                            "seed": workload.effective_arrival_seed,
+                            "arrival_seed": workload.effective_arrival_seed,
                             "scheduled_offsets_s": scheduled_offsets,
                             "actual_dispatch_offsets_s": dispatch,
                         }

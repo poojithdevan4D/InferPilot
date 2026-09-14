@@ -33,9 +33,23 @@ class ArrivalEvidence(SchemaModel):
 
     algorithm: Literal["poisson-v1"]
     request_rate_qps: float = Field(gt=0, allow_inf_nan=False)
-    seed: int
+    seed: int  # the seed that produced these offsets (= effective arrival seed)
+    arrival_seed: Optional[int] = Field(
+        default=None,
+        description="Explicit arrival seed (0.4.0 artifacts). Absent on 0.3.0 artifacts.",
+    )
     scheduled_offsets_s: list[float]
     actual_dispatch_offsets_s: list[float]
+
+    @property
+    def effective_arrival_seed(self) -> int:
+        """The arrival seed this artifact was produced with.
+
+        Prefers the explicit ``arrival_seed`` (0.4.0); falls back to ``seed`` for
+        older artifacts, which never carried a separate arrival seed. This does
+        not reinterpret old artifacts — their ``seed`` WAS the arrival seed.
+        """
+        return self.arrival_seed if self.arrival_seed is not None else self.seed
 
     @model_validator(mode="after")
     def _check_offsets(self) -> "ArrivalEvidence":
