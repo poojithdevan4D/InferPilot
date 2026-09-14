@@ -83,3 +83,18 @@ def comparison_fingerprint(
     if not fields:
         raise ValueError("at least one varied engine field is required")
     return _digest(_identity_payload(result, fields))
+
+
+def cross_block_fingerprint(
+    result: ExperimentResult, varied_engine_fields: Iterable[str]
+) -> str:
+    """Cross-block context: like ``comparison_fingerprint`` but ALSO removes the
+    workload seed, so runs that differ only in workload seed (and allowlisted
+    engine fields) share it. Does not weaken the other fingerprints — the within-
+    block comparison fingerprint still keeps the seed significant."""
+    fields = tuple(sorted(set(varied_engine_fields)))
+    if not fields:
+        raise ValueError("at least one varied engine field is required")
+    payload = _identity_payload(result, fields)
+    _delete_path(payload, "config.workload.seed")
+    return _digest(payload)

@@ -6,10 +6,11 @@ import argparse
 import json
 from pathlib import Path
 
+from .blocked import evaluate_blocked_study
 from .compare import build_cohort, compare_cohorts
 from .decision import evaluate_study
 from .frontier import build_pareto_frontier
-from .models import StudySpec
+from .models import BlockedStudySpec, StudySpec
 from .store import ResultStore
 
 
@@ -54,6 +55,11 @@ def main(argv: list[str] | None = None) -> int:
     evaluate.add_argument("study", type=Path)
     evaluate.add_argument("--output", type=Path)
 
+    blocked = subparsers.add_parser("blocked-evaluate")
+    blocked.add_argument("store", type=Path)
+    blocked.add_argument("study", type=Path)
+    blocked.add_argument("--output", type=Path)
+
     args = parser.parse_args(argv)
     store = ResultStore(args.store)
 
@@ -88,10 +94,19 @@ def main(argv: list[str] | None = None) -> int:
             objective_metrics=args.objective,
             min_runs=args.min_runs,
         )
-    else:
+    elif args.command == "evaluate":
         study = StudySpec.model_validate_json(args.study.read_text())
         report = evaluate_study(
             [store.list_runs(experiment_id) for experiment_id in study.experiment_ids],
+            study,
+        )
+    else:
+        study = BlockedStudySpec.model_validate_json(args.study.read_text())
+        report = evaluate_blocked_study(
+            [
+                [store.list_runs(eid) for eid in block.experiment_ids]
+                for block in study.blocks
+            ],
             study,
         )
     payload = report.model_dump_json(indent=2)

@@ -231,6 +231,23 @@ ranked, using their declared objective's run-level mean. This conservative obser
 policy is deterministic and auditable, but it is not a confidence bound or deployment
 guarantee.
 
+### Blocked multi-seed confirmatory studies
+
+`StudySpec`/`evaluate_study` judge candidates under a *single* workload schedule (repetitions
+measure repeatability conditional on that schedule). `BlockedStudySpec`/`evaluate_blocked_study`
+(CLI: `python -m inferpilot.comparison blocked-evaluate <store> <study.json>`) add
+arrival-process variability: each **block** fixes one workload seed and evaluates the same
+rectangular set of engine candidates against the SLO; at least three independent blocks are
+required. Within a block, candidates must be compatible under the strict comparison fingerprint
+(only the declared engine fields differ, workload seed included); across blocks, only the
+workload seed and human identifiers may differ (enforced by a separate cross-block fingerprint
+that does **not** weaken the within-block fingerprints). A candidate is **robust-feasible** only
+if every block's worst observed run meets the SLO; robust-feasible candidates are ranked by the
+mean of their per-block objective means, and all per-block results are preserved. Reports are
+immutable and make **no** statistical-significance, confidence-bound, or deployment-safety claim.
+Report versions: comparison `0.2.1`, frontier `0.1.1`, decision `0.1.1`, blocked study `0.1.0`
+(result schema `0.3.0` unchanged).
+
 ### First controlled scheduling experiment
 
 `examples/experiment_c4_seq1.json` through `experiment_c4_seq4.json` hold workload, model,
@@ -298,8 +315,10 @@ schedule instead of the closed-loop semaphore:
 - **Limitations:** this is a bounded MVP — the full schedule is materialized up front and all
   requests may become in-flight at once; it does not throttle to a sustainable rate, cap
   in-flight requests, or drop/delay arrivals. Use only for small, bounded measured workloads.
-- **SLO** — concrete latency/throughput targets are undecided. `SLO` fields are all optional;
-  experiments currently run with no SLO for pure characterization (no SLO evaluation yet).
+- **SLO** — concrete latency/throughput *targets* are still undecided and characterization runs
+  set `slo: null`. SLO **evaluation** itself exists: a `StudySpec` (single-schedule) or
+  `BlockedStudySpec` (multi-seed, robust-feasible) applies an explicit SLO conservatively over
+  observed runs. No default/global SLO is invented.
 - **Prompt tokenization** — prompts are ~N tokens (word-approximate), not exact; the runner
   records the server's *actual* counted tokens, so aggregates use real counts regardless.
 

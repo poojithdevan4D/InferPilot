@@ -12,6 +12,7 @@ from ..config import SLO
 REPORT_VERSION = "0.2.1"
 FRONTIER_REPORT_VERSION = "0.1.1"
 DECISION_REPORT_VERSION = "0.1.1"
+BLOCKED_STUDY_REPORT_VERSION = "0.1.0"
 
 SLO_RULES = {
     "ttft_p95_ms": ("ttft_p95_ms", "<="),
@@ -288,4 +289,176 @@ class DecisionReport(SchemaModel):
         expected_recommendation = best[0] if len(best) == 1 else None
         if self.recommended_experiment_id != expected_recommendation:
             raise ValueError("recommended_experiment_id is inconsistent with rank-1 candidates")
+        return self
+
+
+# --------------------------------------------------------------------------- #
+# Blocked (multi-seed) confirmatory study
+# --------------------------------------------------------------------------- #
+
+
+class StudyBlock(SchemaModel):
+    """One workload-seed block: the candidate experiment ids run at that seed."""
+
+    seed: int
+    experiment_ids: list[str] = Field(min_length=2)
+
+    @model_validator(mode="after")
+    def _check_block(self) -> "StudyBlock":
+        if len(set(self.experiment_ids)) != len(self.experiment_ids):
+            raise ValueError("a block must not repeat experiment ids")
+        return self
+
+
+class BlockedStudySpec(SchemaModel):
+    """Explicit policy for a multi-seed blocked confirmatory study.
+
+    Each block fixes one workload seed and lists the same rectangular set of
+    engine candidates (in the same order). At least three independent blocks are
+    required so robustness reflects arrival-process variability, not a single
+    schedule.
+    """
+
+    spec_version: Literal["0.1.0"] = "0.1.0"
+    study_id: str
+    objective: DecisionMetric
+    slo: SLO
+    varied_engine_fields: list[str] = Field(min_length=1)
+    blocks: list[StudyBlock] = Field(min_length=3)
+    min_runs: int = Field(default=1, ge=1)
+
+    @model_validator(mode="after")
+    def _check_spec(self) -> "BlockedStudySpec":
+        if len(self.varied_engine_fields) != len(set(self.varied_engine_fields)):
+            raise ValueError("varied_engine_fields must be distinct")
+        seeds = [block.seed for block in self.blocks]
+        if len(set(seeds)) != len(seeds):
+            raise ValueError("blocks must use distinct workload seeds")
+        width = len(self.blocks[0].experiment_ids)
+        if any(len(block.experiment_ids) != width for block in self.blocks):
+            raise ValueError("every block must contain the same number of candidates")
+        if not any(value is not None for value in self.slo.model_dump().values()):
+            raise ValueError("study SLO must declare at least one constraint")
+        return self
+
+
+class BlockCandidateResult(SchemaModel):
+    """SLO outcome for one candidate within one block (worst observed run)."""
+
+    experiment_id: str
+    engine_values: dict[str, Any]
+    slo_checks: list[SLOCheck] = Field(min_length=1)
+    feasible: bool
+    objective_mean: float
+
+    @model_validator(mode="after")
+    def _check(self) -> "BlockCandidateResult":
+        if self.feasible != all(check.passed for check in self.slo_checks):
+            raise ValueError("feasible must agree with all SLO checks")
+        return self
+
+
+class BlockResult(SchemaModel):
+    """All candidate outcomes for one workload-seed block."""
+
+    seed: int
+    candidates: list[BlockCandidateResult] = Field(min_length=2)
+
+
+class RobustCandidate(SchemaModel):
+    """A rectangular candidate aggregated across every block."""
+
+    candidate_index: int = Field(ge=0)
+    engine_values: dict[str, Any]
+    experiment_ids: list[str] = Field(min_length=3)
+    block_objective_means: list[float] = Field(min_length=3)
+    mean_objective_mean: float
+    blocks_feasible: int = Field(ge=0)
+    num_blocks: int = Field(ge=3)
+    robust_feasible: bool
+    objective_direction: Literal["lower_is_better", "higher_is_better"]
+    rank: Optional[int] = Field(default=None, ge=1)
+
+    @model_validator(mode="after")
+    def _check(self) -> "RobustCandidate":
+        if self.blocks_feasible > self.num_blocks:
+            raise ValueError("blocks_feasible cannot exceed num_blocks")
+        if self.robust_feasible != (self.blocks_feasible == self.num_blocks):
+            raise ValueError("robust_feasible requires passing every block")
+        if self.robust_feasible != (self.rank is not None):
+            raise ValueError("only robust-feasible candidates may have a rank")
+        return self
+
+
+class BlockedStudyReport(SchemaModel):
+    """Reproducible multi-seed blocked evaluation. Descriptive only — no
+    statistical-significance, confidence, or deployment-safety claim."""
+
+    report_version: str = BLOCKED_STUDY_REPORT_VERSION
+    study: BlockedStudySpec
+    context_fingerprint: str
+    blocks: list[BlockResult] = Field(min_length=3)
+    candidates: list[RobustCandidate] = Field(min_length=2)
+    status: Literal["selected", "tie", "no_feasible_candidate"]
+    recommended_engine_values: Optional[dict[str, Any]] = None
+    best_candidate_indices: list[int] = Field(default_factory=list)
+    interpretation: str = Field(
+        default=(
+            "A candidate is robust-feasible only if every block's worst observed run "
+            "meets the SLO. Robust-feasible candidates are ranked by the mean of their "
+            "per-block objective means. Per-block results are retained. This is an "
+            "evidence summary under the declared policy — not a statistical-significance "
+            "claim, a confidence bound, or a deployment-safety guarantee."
+        )
+    )
+
+    @model_validator(mode="after")
+    def _check_report(self) -> "BlockedStudyReport":
+        num_blocks = len(self.study.blocks)
+        if len(self.blocks) != num_blocks:
+            raise ValueError("report blocks must match study blocks")
+        if [b.seed for b in self.blocks] != [b.seed for b in self.study.blocks]:
+            raise ValueError("report block seeds must match study block seeds in order")
+
+        width = len(self.candidates)
+        for block in self.blocks:
+            if len(block.candidates) != width:
+                raise ValueError("every block must evaluate the full rectangular design")
+
+        direction = OBJECTIVE_DIRECTIONS[self.study.objective]
+        for index, candidate in enumerate(self.candidates):
+            if candidate.candidate_index != index:
+                raise ValueError("candidates must be ordered by candidate_index")
+            if candidate.num_blocks != num_blocks:
+                raise ValueError("candidate num_blocks must equal the number of blocks")
+            if candidate.objective_direction != direction:
+                raise ValueError("candidate objective direction is incorrect")
+            # per-block feasibility for this candidate index must agree
+            observed_feasible = sum(
+                1 for block in self.blocks if block.candidates[index].feasible
+            )
+            if candidate.blocks_feasible != observed_feasible:
+                raise ValueError("blocks_feasible is inconsistent with per-block results")
+            means = [block.candidates[index].objective_mean for block in self.blocks]
+            if candidate.block_objective_means != means:
+                raise ValueError("block_objective_means inconsistent with per-block results")
+
+        robust = [c for c in self.candidates if c.robust_feasible]
+        if robust:
+            reverse = direction == "higher_is_better"
+            ordered = sorted({c.mean_objective_mean for c in robust}, reverse=reverse)
+            expected = {value: rank for rank, value in enumerate(ordered, start=1)}
+            if any(c.rank != expected[c.mean_objective_mean] for c in robust):
+                raise ValueError("candidate ranks are inconsistent with the objective")
+        best = [c.candidate_index for c in robust if c.rank == 1]
+        if self.best_candidate_indices != best:
+            raise ValueError("best_candidate_indices must match rank-1 robust candidates")
+        expected_status = (
+            "no_feasible_candidate" if not best else "selected" if len(best) == 1 else "tie"
+        )
+        if self.status != expected_status:
+            raise ValueError("status is inconsistent with candidate ranks")
+        expected_reco = self.candidates[best[0]].engine_values if len(best) == 1 else None
+        if self.recommended_engine_values != expected_reco:
+            raise ValueError("recommended_engine_values inconsistent with rank-1 candidate")
         return self
