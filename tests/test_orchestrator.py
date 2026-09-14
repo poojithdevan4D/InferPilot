@@ -165,33 +165,49 @@ def test_warmup_failure_prevents_measured_execution(tmp_path) -> None:
     assert all(e["success"] is False for e in entries)
 
 
-def test_open_loop_request_fails_closed_before_server_start(tmp_path) -> None:
-    base = _config(num_requests=3, warmup=0)
+def _open_loop_config(num_requests=3, warmup=2, rate=20.0, seed=7) -> ExperimentConfig:
+    base = _config(num_requests=num_requests, warmup=warmup)
     workload = WorkloadSpec(
-        name="open-loop",
-        num_requests=3,
-        prompt_tokens=128,
-        output_tokens=8,
-        request_rate_qps=2.0,
+        name="open-loop", num_requests=num_requests, warmup_requests=warmup,
+        prompt_tokens=128, output_tokens=8, request_rate_qps=rate, seed=seed,
         ignore_eos=True,
     )
-    cfg = base.model_copy(update={"workload": workload})
+    return base.model_copy(update={"workload": workload})
 
-    def must_not_build(_port: int) -> list[str]:
-        raise AssertionError("server command must not be built for unsupported workload")
 
-    result = run_experiment(cfg, str(tmp_path), command_builder=must_not_build)
+def test_open_loop_run_produces_arrivals_and_excludes_warmups(tmp_path) -> None:
+    cfg = _open_loop_config(num_requests=3, warmup=2, rate=20.0, seed=7)
+    result = run_experiment(
+        cfg, str(tmp_path), command_builder=_builder("normal", 8), ready_timeout_s=15.0
+    )
+    assert result.status is ExperimentStatus.COMPLETED
+    assert len(result.measurements) == 3
 
-    assert result.status is ExperimentStatus.FAILED
-    assert result.failure is not None
-    assert result.failure.error_type == "UnsupportedArrivalPattern"
-    assert "open-loop" in result.failure.message
-    assert result.measurements == []
-    assert result.is_baseline_eligible is False
-    run_dir = next(tmp_path.iterdir())
-    assert (run_dir / RESULT_FILENAME).exists()
-    lifecycle = json.loads((run_dir / "lifecycle.json").read_text())
-    assert lifecycle["teardown_started"] is False
+    run_dir = list(tmp_path.iterdir())[0]
+    arrivals = json.loads((run_dir / "arrivals.json").read_text())
+    assert arrivals["algorithm"] == "poisson-v1"
+    assert arrivals["seed"] == 7
+    assert arrivals["scheduled_offsets_s"][0] == 0.0
+    assert len(arrivals["scheduled_offsets_s"]) == 3
+    assert len(arrivals["actual_dispatch_offsets_s"]) == 3
+
+    # Warm-ups excluded from the measured arrival timeline: measured clock starts
+    # at the arrival origin, so the first measured request starts near 0.
+    assert min(m.start_time_s for m in result.measurements) < 0.2
+    warm = json.loads((run_dir / "warmup.json").read_text())
+    assert len(warm) == 2
+
+
+def test_open_loop_request_failures_still_structured(tmp_path) -> None:
+    cfg = _open_loop_config(num_requests=3, warmup=0, rate=20.0, seed=1)
+    result = run_experiment(
+        cfg, str(tmp_path), command_builder=_builder("error500"), ready_timeout_s=15.0
+    )
+    assert result.status is ExperimentStatus.COMPLETED
+    assert result.aggregates is not None
+    assert result.aggregates.num_failed == 3
+    assert len(result.measurements) == 3
+    assert all(not m.success for m in result.measurements)
 
 
 def test_readiness_timeout_produces_timeout_result(tmp_path) -> None:

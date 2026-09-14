@@ -76,6 +76,12 @@ class _Handler(BaseHTTPRequestHandler):
             self.wfile.write(b"internal error")
             return
 
+        # Optional fixed delay before responding — lets tests prove open-loop
+        # arrivals do not wait for earlier requests to complete.
+        delay = getattr(self.server, "response_delay", 0.0)  # type: ignore[attr-defined]
+        if delay:
+            time.sleep(delay)
+
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream")
         self.end_headers()
@@ -110,21 +116,24 @@ class _FakeServer(ThreadingHTTPServer):
     daemon_threads = True
 
     def __init__(
-        self, addr, mode: str, output_tokens: int, prompt_tokens: int, kv_usage: float = 0.42
+        self, addr, mode: str, output_tokens: int, prompt_tokens: int,
+        kv_usage: float = 0.42, response_delay: float = 0.0
     ) -> None:
         super().__init__(addr, _Handler)
         self.mode = mode
         self.output_tokens = output_tokens
         self.prompt_tokens = prompt_tokens
         self.kv_usage = kv_usage
+        self.response_delay = response_delay
 
 
 @contextlib.contextmanager
 def serve_in_thread(
-    mode: str = "normal", output_tokens: int = 8, prompt_tokens: int = 128, kv_usage: float = 0.42
+    mode: str = "normal", output_tokens: int = 8, prompt_tokens: int = 128,
+    kv_usage: float = 0.42, response_delay: float = 0.0
 ) -> Iterator[str]:
     """Start the fake server on a free port in a daemon thread; yield base_url."""
-    server = _FakeServer(("127.0.0.1", 0), mode, output_tokens, prompt_tokens, kv_usage)
+    server = _FakeServer(("127.0.0.1", 0), mode, output_tokens, prompt_tokens, kv_usage, response_delay)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:

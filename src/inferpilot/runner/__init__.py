@@ -15,7 +15,8 @@ Concerns are separated into modules:
 from __future__ import annotations
 
 from .aggregate import compute_aggregates, percentile
-from .client import GenerationParams, run_requests
+from .client import GenerationParams, run_requests, run_requests_open_loop
+from .schedule import POISSON_VERSION, generate_poisson_offsets
 from .defaults import (
     BENCH_PYTHON_VERSION,
     DEFAULT_MODEL,
@@ -51,6 +52,9 @@ __all__ = [
     "percentile",
     "GenerationParams",
     "run_requests",
+    "run_requests_open_loop",
+    "generate_poisson_offsets",
+    "POISSON_VERSION",
     "ManagedServer",
     "ServerReadinessTimeout",
     "ServerStartupError",

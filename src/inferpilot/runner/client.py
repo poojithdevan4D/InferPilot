@@ -203,3 +203,41 @@ async def run_requests(
 
         tasks = [asyncio.create_task(worker(i, p)) for i, p in enumerate(prompts)]
         return list(await asyncio.gather(*tasks))
+
+
+async def run_requests_open_loop(
+    base_url: str,
+    prompts: list[str],
+    params: GenerationParams,
+    *,
+    t0: float,
+    offsets: list[float],
+    id_prefix: str = "req",
+) -> tuple[list[RequestMeasurement], list[float]]:
+    """Dispatch ``prompts`` at their scheduled arrival ``offsets`` (open-loop).
+
+    Every request is scheduled up front and fires at ``t0 + offset`` regardless of
+    whether earlier requests have completed (no semaphore, no back-pressure).
+    Returns ``(measurements, actual_dispatch_offsets)`` in prompt order; the
+    dispatch offsets are the monotonic send times relative to ``t0``.
+    """
+    url = base_url.rstrip("/") + "/v1/completions"
+    timeout = httpx.Timeout(params.request_timeout_s)
+    dispatch_offsets: list[float] = [0.0] * len(prompts)
+
+    async with httpx.AsyncClient(timeout=timeout) as client:
+
+        async def worker(index: int, prompt: str, scheduled: float) -> RequestMeasurement:
+            delay = (t0 + scheduled) - monotonic()
+            if delay > 0:
+                await asyncio.sleep(delay)
+            dispatch_offsets[index] = monotonic() - t0
+            return await _measure_one(
+                client, url, prompt, params, t0, f"{id_prefix}-{index}"
+            )
+
+        tasks = [
+            asyncio.create_task(worker(i, p, offsets[i])) for i, p in enumerate(prompts)
+        ]
+        results = list(await asyncio.gather(*tasks))
+    return results, dispatch_offsets

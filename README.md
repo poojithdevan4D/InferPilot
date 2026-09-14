@@ -274,8 +274,30 @@ Resolved for Milestone 1: **model**, **vLLM version**, and the **characterizatio
 shape** (table above). Still open:
 
 - **Workload shape (beyond characterization)** — realistic distributions (variable lengths,
-  chat vs. batch, real traces) and open-loop arrivals are not implemented; the current slice
-  is closed-loop, fixed-length only.
+  chat vs. batch, real traces) are not implemented. Arrivals now support **closed-loop**
+  (`request_rate_qps=None`, bounded by `max_concurrency`) and **open-loop `poisson-v1`**
+  (`request_rate_qps>0`), described below.
+
+### Open-loop arrivals (`poisson-v1`)
+
+When `WorkloadSpec.request_rate_qps > 0`, measured requests are dispatched on a seeded Poisson
+schedule instead of the closed-loop semaphore:
+
+- Offsets are seconds relative to the measured **arrival origin** (t0). The first measured
+  request arrives at offset `0.0`; each subsequent inter-arrival time is drawn from an
+  exponential distribution with mean `1/request_rate_qps`
+  (`random.Random(WorkloadSpec.seed).expovariate(rate)`), and offsets are the running sum.
+- The schedule is fully determined by `(num_requests, request_rate_qps, seed)` — identical
+  inputs give identical schedules; different seeds give different ones.
+- **Arrivals are independent of completion**: every request is scheduled up front and fires at
+  its offset regardless of whether earlier requests have finished (no semaphore, no
+  back-pressure). Warm-ups run sequentially and finish *before* the arrival clock and telemetry
+  window start. Benchmark `duration_s` spans the arrival origin to the final completion.
+- Generated and actual dispatch offsets are stored in an immutable `arrivals.json` diagnostic
+  artifact (the result schema `0.3.0` is unchanged).
+- **Limitations:** this is a bounded MVP — the full schedule is materialized up front and all
+  requests may become in-flight at once; it does not throttle to a sustainable rate, cap
+  in-flight requests, or drop/delay arrivals. Use only for small, bounded measured workloads.
 - **SLO** — concrete latency/throughput targets are undecided. `SLO` fields are all optional;
   experiments currently run with no SLO for pure characterization (no SLO evaluation yet).
 - **Prompt tokenization** — prompts are ~N tokens (word-approximate), not exact; the runner
