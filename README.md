@@ -94,7 +94,8 @@ src/inferpilot/
     store.py         # content-addressed, integrity-checked run-bundle catalog
     fingerprint.py   # exact-repeat and controlled-comparison identities
     compare.py       # cohort statistics + direction-aware observed deltas
-    __main__.py      # ingest, summary, and compare CLI
+    frontier.py      # compatibility-guarded multi-objective Pareto analysis
+    __main__.py      # ingest, summary, compare, and frontier CLI
 examples/
   example_experiment.json
 tests/
@@ -189,6 +190,14 @@ python -m inferpilot.comparison compare result-store \
   --candidate <candidate-experiment-id> \
   --vary max_num_seqs \
   --output runs/comparison.json
+
+# Identify nondominated settings for explicitly selected objectives.
+python -m inferpilot.comparison frontier result-store \
+  --experiment <experiment-a> --experiment <experiment-b> \
+  --vary max_num_seqs \
+  --objective ttft_p95_ms --objective tpot_p95_ms \
+  --objective throughput_tokens_per_s \
+  --output runs/frontier.json
 ```
 
 Human labels, hostnames, and capture timestamps do not define compatibility. Model/revision,
@@ -197,6 +206,10 @@ settings do. A comparison is rejected if any non-allowlisted condition changes. 
 telemetry is reported as context; KV-cache utilization is not assumed to be intrinsically
 better when lower or higher. GPU memory is likewise contextual until a study defines a
 memory constraint or objective. Comparison report version `0.2.0` encodes these semantics.
+The frontier requires at least two explicit non-contextual objectives and computes exact
+Pareto dominance over cohort means. It deliberately does not collapse competing metrics
+into an implicit score, claim statistical significance, or select a deployment setting
+without an SLO.
 
 ### First controlled scheduling experiment
 

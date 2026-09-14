@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pytest
+from pydantic import ValidationError
 
 from inferpilot import (
     AggregateMetrics,
@@ -17,7 +18,12 @@ from inferpilot import (
     ToolchainInfo,
     WorkloadSpec,
 )
-from inferpilot.comparison import build_cohort, compare_cohorts
+from inferpilot.comparison import (
+    ParetoReport,
+    build_cohort,
+    build_pareto_frontier,
+    compare_cohorts,
+)
 
 
 def _result(
@@ -27,6 +33,7 @@ def _result(
     max_num_seqs: int = 1,
     throughput: float = 100.0,
     ttft_p50: float = 20.0,
+    tpot_p50: float = 6.0,
     gpu_name: str = "GPU-A",
 ) -> ExperimentResult:
     config = ExperimentConfig(
@@ -86,9 +93,9 @@ def _result(
         ttft_p50_ms=ttft_p50,
         ttft_p95_ms=ttft_p50 + 5,
         ttft_p99_ms=ttft_p50 + 8,
-        tpot_p50_ms=6,
-        tpot_p95_ms=7,
-        tpot_p99_ms=8,
+        tpot_p50_ms=tpot_p50,
+        tpot_p95_ms=tpot_p50 + 1,
+        tpot_p99_ms=tpot_p50 + 2,
         e2e_p50_ms=210,
         e2e_p95_ms=230,
         e2e_p99_ms=240,
@@ -116,7 +123,14 @@ def _result(
     )
 
 
-def _cohort(experiment_id: str, *, max_num_seqs: int, throughput: float, ttft: float):
+def _cohort(
+    experiment_id: str,
+    *,
+    max_num_seqs: int,
+    throughput: float,
+    ttft: float,
+    tpot: float = 6.0,
+):
     return [
         (
             f"{experiment_id}-{i}",
@@ -126,6 +140,7 @@ def _cohort(experiment_id: str, *, max_num_seqs: int, throughput: float, ttft: f
                 max_num_seqs=max_num_seqs,
                 throughput=throughput + i,
                 ttft_p50=ttft + i * 0.1,
+                tpot_p50=tpot + i * 0.01,
             ),
         )
         for i in range(3)
@@ -183,3 +198,91 @@ def test_compare_refuses_no_actual_change_and_unknown_field() -> None:
         compare_cohorts(baseline, same, varied_engine_fields=["max_num_seqs"])
     with pytest.raises(ValueError, match="unknown EngineConfig"):
         compare_cohorts(baseline, same, varied_engine_fields=["not_a_knob"])
+
+
+def test_pareto_frontier_preserves_observed_tradeoffs() -> None:
+    seq1 = _cohort("seq1", max_num_seqs=1, throughput=100, ttft=60, tpot=5)
+    seq2 = _cohort("seq2", max_num_seqs=2, throughput=180, ttft=30, tpot=6)
+    seq4 = _cohort("seq4", max_num_seqs=4, throughput=300, ttft=10, tpot=7)
+
+    report = build_pareto_frontier(
+        [seq1, seq2, seq4],
+        varied_engine_fields=["max_num_seqs"],
+        objective_metrics=["ttft_p50_ms", "tpot_p50_ms", "throughput_tokens_per_s"],
+    )
+
+    assert report.report_version == "0.1.0"
+    assert report.nondominated_experiment_ids == ["seq1", "seq2", "seq4"]
+    assert all(entry.is_nondominated for entry in report.entries)
+    assert report.entries[1].engine_values == {"max_num_seqs": 2}
+
+
+def test_pareto_frontier_marks_dominated_cohort() -> None:
+    weak = _cohort("weak", max_num_seqs=1, throughput=100, ttft=30, tpot=7)
+    strong = _cohort("strong", max_num_seqs=2, throughput=200, ttft=20, tpot=6)
+
+    report = build_pareto_frontier(
+        [weak, strong],
+        varied_engine_fields=["max_num_seqs"],
+        objective_metrics=["ttft_p50_ms", "tpot_p50_ms", "throughput_tokens_per_s"],
+    )
+
+    assert report.nondominated_experiment_ids == ["strong"]
+    assert report.entries[0].dominated_by == ["strong"]
+    assert not report.entries[0].is_nondominated
+
+
+def test_pareto_frontier_refuses_implicit_or_contextual_objectives() -> None:
+    cohorts = [
+        _cohort("seq1", max_num_seqs=1, throughput=100, ttft=30),
+        _cohort("seq2", max_num_seqs=2, throughput=200, ttft=20),
+    ]
+    with pytest.raises(ValueError, match="at least two distinct objectives"):
+        build_pareto_frontier(
+            cohorts,
+            varied_engine_fields=["max_num_seqs"],
+            objective_metrics=["ttft_p50_ms"],
+        )
+    with pytest.raises(ValueError, match="context-only"):
+        build_pareto_frontier(
+            cohorts,
+            varied_engine_fields=["max_num_seqs"],
+            objective_metrics=["ttft_p50_ms", "peak_gpu_memory_mb"],
+        )
+
+
+def test_pareto_frontier_refuses_hidden_changes_and_unused_vary_fields() -> None:
+    seq1 = _cohort("seq1", max_num_seqs=1, throughput=100, ttft=30)
+    seq2 = _cohort("seq2", max_num_seqs=2, throughput=200, ttft=20)
+    seq2[2] = ("seq2-2", _result("seq2", 2, max_num_seqs=2, gpu_name="GPU-B"))
+    with pytest.raises(ValueError, match="non-equivalent"):
+        build_pareto_frontier(
+            [seq1, seq2],
+            varied_engine_fields=["max_num_seqs"],
+            objective_metrics=["ttft_p50_ms", "throughput_tokens_per_s"],
+        )
+
+    same = _cohort("same", max_num_seqs=1, throughput=200, ttft=20)
+    with pytest.raises(ValueError, match="did not actually change"):
+        build_pareto_frontier(
+            [seq1, same],
+            varied_engine_fields=["max_num_seqs"],
+            objective_metrics=["ttft_p50_ms", "throughput_tokens_per_s"],
+        )
+
+
+def test_pareto_report_roundtrip_and_cross_field_validation() -> None:
+    report = build_pareto_frontier(
+        [
+            _cohort("seq1", max_num_seqs=1, throughput=100, ttft=30, tpot=5),
+            _cohort("seq2", max_num_seqs=2, throughput=200, ttft=20, tpot=6),
+        ],
+        varied_engine_fields=["max_num_seqs"],
+        objective_metrics=["ttft_p50_ms", "tpot_p50_ms"],
+    )
+    assert ParetoReport.model_validate_json(report.model_dump_json()) == report
+
+    invalid = report.model_dump(mode="json")
+    invalid["nondominated_experiment_ids"] = ["not-an-entry"]
+    with pytest.raises(ValidationError, match="must match nondominated entries"):
+        ParetoReport.model_validate(invalid)

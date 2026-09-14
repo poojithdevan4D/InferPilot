@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 
 from .compare import build_cohort, compare_cohorts
+from .frontier import build_pareto_frontier
 from .store import ResultStore
 
 
@@ -38,6 +39,14 @@ def main(argv: list[str] | None = None) -> int:
     compare.add_argument("--min-runs", type=int, default=3)
     compare.add_argument("--output", type=Path)
 
+    frontier = subparsers.add_parser("frontier")
+    frontier.add_argument("store", type=Path)
+    frontier.add_argument("--experiment", action="append", required=True)
+    frontier.add_argument("--vary", action="append", required=True)
+    frontier.add_argument("--objective", action="append", required=True)
+    frontier.add_argument("--min-runs", type=int, default=3)
+    frontier.add_argument("--output", type=Path)
+
     args = parser.parse_args(argv)
     store = ResultStore(args.store)
 
@@ -58,12 +67,20 @@ def main(argv: list[str] | None = None) -> int:
         print(cohort.model_dump_json(indent=2))
         return 0
 
-    report = compare_cohorts(
-        store.list_runs(args.baseline),
-        store.list_runs(args.candidate),
-        varied_engine_fields=args.vary,
-        min_runs=args.min_runs,
-    )
+    if args.command == "compare":
+        report = compare_cohorts(
+            store.list_runs(args.baseline),
+            store.list_runs(args.candidate),
+            varied_engine_fields=args.vary,
+            min_runs=args.min_runs,
+        )
+    else:
+        report = build_pareto_frontier(
+            [store.list_runs(experiment_id) for experiment_id in args.experiment],
+            varied_engine_fields=args.vary,
+            objective_metrics=args.objective,
+            min_runs=args.min_runs,
+        )
     payload = report.model_dump_json(indent=2)
     if args.output is not None:
         _write_report(args.output, payload)
