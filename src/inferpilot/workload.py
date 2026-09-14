@@ -10,7 +10,7 @@ schema is intentionally small and additive-friendly rather than complete.
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import Field, model_validator
 
@@ -49,6 +49,14 @@ class WorkloadSpec(SchemaModel):
             "The current runner rejects non-None values rather than silently "
             "executing a different arrival process."
         ),
+    )
+    arrival_pattern: Literal["poisson-v1", "batched-poisson-v1"] = Field(
+        default="poisson-v1",
+        description="Open-loop arrival algorithm; legacy schemas use poisson-v1.",
+    )
+    burst_size: Optional[int] = Field(
+        default=None, ge=2,
+        description="Requests per simultaneous batch under batched-poisson-v1.",
     )
     max_concurrency: Optional[int] = Field(
         default=None,
@@ -111,4 +119,8 @@ class WorkloadSpec(SchemaModel):
                 "workload must define exactly one arrival pattern: set request_rate_qps "
                 "for open-loop or max_concurrency for closed-loop, but not both."
             )
+        if self.arrival_pattern == "poisson-v1" and self.burst_size is not None:
+            raise ValueError("poisson-v1 must not define burst_size")
+        if self.arrival_pattern == "batched-poisson-v1" and self.burst_size is None:
+            raise ValueError("batched-poisson-v1 requires burst_size >= 2")
         return self

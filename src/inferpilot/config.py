@@ -144,6 +144,14 @@ class ExperimentConfig(VersionedSchemaModel):
                 "prompt_seed/arrival_seed require schema_version 0.4.0; "
                 "schema 0.3.0 uses the single legacy seed"
             )
+        if self.schema_version in {"0.3.0", "0.4.0"} and (
+            self.workload.arrival_pattern != "poisson-v1"
+            or self.workload.burst_size is not None
+        ):
+            raise ValueError(
+                "batched-poisson-v1/burst_size require schema_version 0.5.0; "
+                "legacy schemas use poisson-v1"
+            )
         return self
 
 

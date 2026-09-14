@@ -22,6 +22,7 @@ from __future__ import annotations
 import random
 
 POISSON_VERSION = "poisson-v1"
+BATCHED_POISSON_VERSION = "batched-poisson-v1"
 
 
 def generate_poisson_offsets(num_requests: int, request_rate_qps: float, seed: int) -> list[float]:
@@ -37,4 +38,25 @@ def generate_poisson_offsets(num_requests: int, request_rate_qps: float, seed: i
     for _ in range(num_requests - 1):
         cumulative += rng.expovariate(request_rate_qps)
         offsets.append(cumulative)
+    return offsets
+
+
+def generate_batched_poisson_offsets(
+    num_requests: int, request_rate_qps: float, seed: int, burst_size: int
+) -> list[float]:
+    """Return deterministic simultaneous-batch offsets for batched-poisson-v1."""
+    if num_requests <= 0:
+        return []
+    if request_rate_qps <= 0:
+        raise ValueError("request_rate_qps must be > 0 for open-loop arrivals")
+    if burst_size < 2:
+        raise ValueError("burst_size must be >= 2 for batched-poisson-v1")
+    rng = random.Random(seed)
+    batch_rate = request_rate_qps / burst_size
+    offsets: list[float] = []
+    batch_offset = 0.0
+    while len(offsets) < num_requests:
+        offsets.extend([batch_offset] * min(burst_size, num_requests - len(offsets)))
+        if len(offsets) < num_requests:
+            batch_offset += rng.expovariate(batch_rate)
     return offsets

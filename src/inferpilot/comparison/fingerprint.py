@@ -59,6 +59,12 @@ def _identity_payload(
         for key in ("prompt_seed", "arrival_seed"):
             if workload.get(key) is None:
                 workload.pop(key, None)
+        # Explicit 0.5.0 defaults describe the historical behavior. Remove them
+        # so read-supported 0.3.0/0.4.0 identities remain byte-stable.
+        if workload.get("arrival_pattern") == "poisson-v1":
+            workload.pop("arrival_pattern", None)
+        if workload.get("burst_size") is None:
+            workload.pop("burst_size", None)
 
     environment = result.environment.model_dump(mode="json")
     environment.pop("captured_at", None)

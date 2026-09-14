@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-SCHEMA_VERSION = "0.4.0"
+SCHEMA_VERSION = "0.5.0"
 
 # Versions this codebase knows how to interpret. Loading an object stamped with
 # any other version must fail loudly rather than being silently treated as the
@@ -33,7 +33,8 @@ SCHEMA_VERSION = "0.4.0"
 #          and MUST NOT set the split seeds. 0.3.0 fingerprints are preserved:
 #          the split-seed keys are stripped from the identity payload when None.
 # 0.3.0 remains supported for read; 0.1.0 and 0.2.0 are refused loudly.
-SUPPORTED_SCHEMA_VERSIONS: frozenset[str] = frozenset({"0.3.0", "0.4.0"})
+#   0.5.0: explicit open-loop arrival_pattern and batched-Poisson burst_size.
+SUPPORTED_SCHEMA_VERSIONS: frozenset[str] = frozenset({"0.3.0", "0.4.0", "0.5.0"})
 
 
 class SchemaModel(BaseModel):
