@@ -1,5 +1,7 @@
 """Contract and deterministic schedule tests for batched-poisson-v1."""
 
+import statistics
+
 import pytest
 from pydantic import ValidationError
 
@@ -31,6 +33,24 @@ def test_simultaneous_batches_and_truncated_final_batch() -> None:
     assert offsets[4] > 0 and offsets[8] > offsets[4]
 
 
+def test_exact_full_batches_and_single_truncated_batch() -> None:
+    exact = generate_batched_poisson_offsets(8, 8.0, 2, 4)
+    assert len(exact) == 8
+    assert exact[:4] == [0.0] * 4
+    assert exact[4:] == [exact[4]] * 4
+    assert generate_batched_poisson_offsets(3, 8.0, 2, 4) == [0.0, 0.0, 0.0]
+
+
+def test_large_schedule_realizes_declared_long_run_request_rate() -> None:
+    qps, burst_size, count = 8.0, 4, 40_000
+    offsets = generate_batched_poisson_offsets(count, qps, seed=123, burst_size=burst_size)
+    starts = offsets[::burst_size]
+    intervals = [right - left for left, right in zip(starts, starts[1:])]
+    assert statistics.mean(intervals) == pytest.approx(burst_size / qps, rel=0.03)
+    realized_request_rate = (count - burst_size) / (starts[-1] - starts[0])
+    assert realized_request_rate == pytest.approx(qps, rel=0.03)
+
+
 def test_invalid_arrival_parameter_combinations_fail() -> None:
     with pytest.raises(ValidationError, match="must not define burst_size"):
         _workload(arrival_pattern="poisson-v1")
@@ -38,6 +58,8 @@ def test_invalid_arrival_parameter_combinations_fail() -> None:
         _workload(burst_size=None)
     with pytest.raises(ValidationError):
         _workload(burst_size=1)
+    with pytest.raises(ValidationError, match="only valid for open-loop"):
+        _workload(request_rate_qps=None, max_concurrency=1)
 
 
 def test_legacy_schema_rejects_burst_semantics() -> None:

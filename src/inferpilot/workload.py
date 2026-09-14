@@ -122,4 +122,6 @@ class WorkloadSpec(SchemaModel):
             raise ValueError("poisson-v1 must not define burst_size")
         if self.arrival_pattern == "batched-poisson-v1" and self.burst_size is None:
             raise ValueError("batched-poisson-v1 requires burst_size >= 2")
+        if self.request_rate_qps is None and self.arrival_pattern != "poisson-v1":
+            raise ValueError("batched-poisson-v1 is only valid for open-loop workloads")
         return self
