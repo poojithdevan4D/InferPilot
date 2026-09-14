@@ -25,6 +25,7 @@ from inferpilot.comparison import (
     build_pareto_frontier,
     compare_cohorts,
     evaluate_study,
+    exact_fingerprint,
 )
 
 
@@ -174,7 +175,7 @@ def test_compare_allows_only_declared_engine_change_and_applies_direction() -> N
         baseline, candidate, varied_engine_fields=["max_num_seqs"]
     )
 
-    assert report.report_version == "0.2.0"
+    assert report.report_version == "0.2.1"
     assert report.varied_engine_fields == ["max_num_seqs"]
     assert report.metrics["throughput_tokens_per_s"].improvement_pct > 0
     assert report.metrics["ttft_p50_ms"].improvement_pct > 0
@@ -213,7 +214,7 @@ def test_pareto_frontier_preserves_observed_tradeoffs() -> None:
         objective_metrics=["ttft_p50_ms", "tpot_p50_ms", "throughput_tokens_per_s"],
     )
 
-    assert report.report_version == "0.1.0"
+    assert report.report_version == "0.1.1"
     assert report.nondominated_experiment_ids == ["seq1", "seq2", "seq4"]
     assert all(entry.is_nondominated for entry in report.entries)
     assert report.entries[1].engine_values == {"max_num_seqs": 2}
@@ -411,3 +412,80 @@ def test_decision_report_refuses_tampered_rank_or_slo_result() -> None:
     invalid_check["candidates"][0]["rank"] = None
     with pytest.raises(ValidationError, match="SLO check result is inconsistent"):
         type(report).model_validate(invalid_check)
+
+
+# --- sampler_backend reflection-path fingerprinting ------------------------- #
+
+
+def _sampler_result(experiment_id: str, run_number: int, sampler: str,
+                    *, extra_overrides: dict | None = None) -> ExperimentResult:
+    result = _result(experiment_id, run_number)
+    override_value = "0" if sampler == "pytorch" else "1"
+    overrides = {"VLLM_USE_FLASHINFER_SAMPLER": override_value}
+    if extra_overrides:
+        overrides.update(extra_overrides)
+    result.config.engine.sampler_backend = sampler
+    result.environment.effective_sampler_backend = sampler
+    result.environment.runtime_overrides = overrides
+    result.effective_config = result.effective_config.model_copy(
+        update={"sampler_backend": sampler}
+    )
+    return result
+
+
+def _sampler_cohort(experiment_id: str, sampler: str, *, extra_overrides=None):
+    return [
+        (f"{experiment_id}-{i}", _sampler_result(experiment_id, i, sampler,
+                                                 extra_overrides=extra_overrides))
+        for i in range(3)
+    ]
+
+
+def test_sampler_backend_cohorts_compare_when_allowlisted() -> None:
+    baseline = _sampler_cohort("py", "pytorch")
+    candidate = _sampler_cohort("fi", "flashinfer")
+    report = compare_cohorts(
+        baseline, candidate, varied_engine_fields=["sampler_backend"]
+    )
+    assert report.varied_engine_fields == ["sampler_backend"]
+
+
+def test_sampler_backend_exact_fingerprints_still_differ() -> None:
+    py = _sampler_result("py", 0, "pytorch")
+    fi = _sampler_result("fi", 0, "flashinfer")
+    assert exact_fingerprint(py) != exact_fingerprint(fi)
+
+
+def test_sampler_backend_comparison_refused_without_allowlist() -> None:
+    baseline = _sampler_cohort("py", "pytorch")
+    candidate = _sampler_cohort("fi", "flashinfer")
+    with pytest.raises(ValueError, match="non-equivalent|outside the explicitly varied"):
+        compare_cohorts(baseline, candidate, varied_engine_fields=["max_num_seqs"])
+
+
+def test_unrelated_runtime_override_stays_compatibility_significant() -> None:
+    # Same sampler, but one cohort carries an extra unrelated runtime override.
+    baseline = _sampler_cohort("py", "pytorch")
+    candidate = _sampler_cohort("py2", "pytorch", extra_overrides={"VLLM_EXTRA": "1"})
+    with pytest.raises(ValueError, match="outside the explicitly varied"):
+        compare_cohorts(baseline, candidate, varied_engine_fields=["sampler_backend"])
+
+
+def test_two_field_allowlist_refused_if_only_one_changes() -> None:
+    baseline = _cohort("base", max_num_seqs=1, throughput=100, ttft=20)
+    candidate = _cohort("candidate", max_num_seqs=4, throughput=110, ttft=18)
+    # gpu_memory_utilization is allowlisted but identical (0.85) across cohorts.
+    with pytest.raises(ValueError, match="did not actually change"):
+        compare_cohorts(
+            baseline, candidate,
+            varied_engine_fields=["max_num_seqs", "gpu_memory_utilization"],
+        )
+
+
+def test_max_num_seqs_comparison_unaffected_by_reflection_change() -> None:
+    baseline = _cohort("base", max_num_seqs=1, throughput=100, ttft=20)
+    candidate = _cohort("candidate", max_num_seqs=4, throughput=110, ttft=18)
+    report = compare_cohorts(baseline, candidate, varied_engine_fields=["max_num_seqs"])
+    assert report.report_version == "0.2.1"
+    # exact fingerprints differ across the two configs (max_num_seqs changed).
+    assert exact_fingerprint(baseline[0][1]) != exact_fingerprint(candidate[0][1])

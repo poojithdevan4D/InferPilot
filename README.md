@@ -207,10 +207,18 @@ python -m inferpilot.comparison evaluate result-store /path/to/study.json \
 
 Human labels, hostnames, and capture timestamps do not define compatibility. Model/revision,
 workload, hardware, software/toolchain, runtime overrides, and requested/resolved engine
-settings do. A comparison is rejected if any non-allowlisted condition changes. Resource
-telemetry is reported as context; KV-cache utilization is not assumed to be intrinsically
-better when lower or higher. GPU memory is likewise contextual until a study defines a
-memory constraint or objective. Comparison report version `0.2.0` encodes these semantics.
+settings do. A comparison is rejected if any non-allowlisted condition changes, and every
+allowlisted field must have actually changed (a partially-unused allowlist is refused).
+When an engine field is allowlisted as varied, its requested value, effective-config value,
+and only its mapped environment/runtime *reflections* are excluded from the compatibility
+fingerprint — every unrelated runtime override stays significant. For example, allowlisting
+`sampler_backend` also excludes `environment.effective_sampler_backend` and
+`runtime_overrides.VLLM_USE_FLASHINFER_SAMPLER`, so PyTorch-vs-FlashInfer cohorts compare
+correctly (their exact fingerprints still differ). Resource telemetry is reported as context;
+KV-cache utilization is not assumed to be intrinsically better when lower or higher. GPU
+memory is likewise contextual until a study defines a memory constraint or objective. Derived
+report versions: comparison `0.2.1`, frontier `0.1.1`, decision `0.1.1` (result schema stays
+`0.3.0`).
 The frontier requires at least two explicit non-contextual objectives and computes exact
 Pareto dominance over cohort means. It deliberately does not collapse competing metrics
 into an implicit score, claim statistical significance, or select a deployment setting

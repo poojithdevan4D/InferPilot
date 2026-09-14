@@ -9,9 +9,9 @@ from pydantic import Field, model_validator
 from .._base import SchemaModel
 from ..config import SLO
 
-REPORT_VERSION = "0.2.0"
-FRONTIER_REPORT_VERSION = "0.1.0"
-DECISION_REPORT_VERSION = "0.1.0"
+REPORT_VERSION = "0.2.1"
+FRONTIER_REPORT_VERSION = "0.1.1"
+DECISION_REPORT_VERSION = "0.1.1"
 
 SLO_RULES = {
     "ttft_p95_ms": ("ttft_p95_ms", "<="),

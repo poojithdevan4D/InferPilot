@@ -114,11 +114,15 @@ def compare_cohorts(
 
     baseline_engine = baseline_runs[0][1].config.engine
     candidate_engine = candidate_runs[0][1].config.engine
-    if all(
-        getattr(baseline_engine, field) == getattr(candidate_engine, field)
+    unchanged = [
+        field
         for field in fields
-    ):
-        raise ValueError("allowlisted engine field values did not actually change")
+        if getattr(baseline_engine, field) == getattr(candidate_engine, field)
+    ]
+    if unchanged:
+        raise ValueError(
+            f"allowlisted engine field(s) did not actually change: {unchanged}"
+        )
 
     comparisons: dict[str, MetricComparison] = {}
     for name, (direction, _) in METRICS.items():

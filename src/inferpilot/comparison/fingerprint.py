@@ -25,15 +25,26 @@ def _delete_path(payload: dict, path: str) -> None:
     current.pop(parts[-1], None)
 
 
+# Environment reflections of an engine field: when the field is allowlisted as
+# varied, ONLY these mapped paths are stripped (everything else in the
+# environment/runtime stays compatibility-significant).
+_REFLECTION_PATHS: dict[str, tuple[str, ...]] = {
+    "sampler_backend": (
+        "environment.effective_sampler_backend",
+        "environment.runtime_overrides.VLLM_USE_FLASHINFER_SAMPLER",
+    ),
+}
+
+
 def _identity_payload(
     result: ExperimentResult, varied_engine_fields: Iterable[str] = ()
 ) -> dict:
     """Return all conditions that must agree for a valid comparison.
 
-    Human labels and provenance timestamps are excluded. Requested and effective
-    values for explicitly varied engine fields are removed; everything else,
-    including workload, software/toolchain, hardware, and runtime overrides,
-    remains part of the identity.
+    Human labels and provenance timestamps are excluded. For each explicitly
+    varied engine field, its requested value, effective-config value, and only
+    its mapped environment/runtime reflection paths are removed; every unrelated
+    environment/runtime value remains part of the identity.
     """
     config = result.config.model_dump(mode="json")
     for key in ("experiment_id", "name", "description", "tags"):
@@ -54,6 +65,8 @@ def _identity_payload(
         _delete_path(payload, f"config.engine.{field}")
         if effective is not None:
             _delete_path(payload, f"effective.{field}")
+        for reflection in _REFLECTION_PATHS.get(field, ()):
+            _delete_path(payload, reflection)
     return payload
 
 
