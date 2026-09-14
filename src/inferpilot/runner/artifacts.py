@@ -23,6 +23,7 @@ WARMUP_FILENAME = "warmup.json"
 TELEMETRY_FILENAME = "telemetry.json"
 LIFECYCLE_FILENAME = "lifecycle.json"
 ARRIVALS_FILENAME = "arrivals.json"
+PHASES_FILENAME = "phases.json"
 SERVER_STDOUT_FILENAME = "server.stdout.log"
 SERVER_STDERR_FILENAME = "server.stderr.log"
 
@@ -82,6 +83,11 @@ def write_lifecycle(run_dir: Path, lifecycle: dict) -> Path:
 def write_arrivals(run_dir: Path, arrivals: dict) -> Path:
     """Persist the open-loop generated + actual dispatch offsets (immutable)."""
     return _write_immutable_json(run_dir / ARRIVALS_FILENAME, arrivals)
+
+
+def write_phases(run_dir: Path, timing: "RunnerPhaseTiming") -> Path:
+    """Persist the monotonic runner phase-timing artifact (immutable)."""
+    return _write_immutable_json(run_dir / PHASES_FILENAME, timing.model_dump(mode="json"))
 
 
 def write_result(run_dir: Path, result: ExperimentResult) -> Path:

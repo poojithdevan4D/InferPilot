@@ -31,10 +31,12 @@ from .artifacts import (
     server_log_paths,
     write_arrivals,
     write_lifecycle,
+    write_phases,
     write_result,
     write_telemetry,
     write_warmup,
 )
+from .phases import PhaseTimer
 from .client import GenerationParams, run_requests, run_requests_open_loop
 from .schedule import POISSON_VERSION, generate_poisson_offsets
 from .effective_config import check_fidelity, parse_effective_config
@@ -190,11 +192,14 @@ def run_experiment(
     )
 
     result: Optional[ExperimentResult] = None
+    timer = PhaseTimer()
     try:
+        timer.launch()
         server.start()
 
         try:
             server.wait_until_ready()
+            timer.mark("server_ready")
             ready = True
         except ServerReadinessTimeout as exc:
             ready = False
@@ -220,6 +225,7 @@ def run_experiment(
         if ready:
             # Configuration fidelity: verify what vLLM actually resolved vs what
             # we asked for. Do not trust the input config to describe what ran.
+            timer.mark("config_verify_start")
             log_text = server.read_stdout() + "\n" + server.read_stderr()
             effective = parse_effective_config(log_text)
             mismatches, unverified = check_fidelity(config.engine, effective)
@@ -229,6 +235,7 @@ def run_experiment(
                     "verified": not mismatches and not unverified,
                 }
             )
+            timer.mark("config_verify_end")
 
         if ready and (mismatches or unverified):
             # Fail BEFORE measurement — a config drift invalidates the benchmark.
@@ -257,15 +264,18 @@ def run_experiment(
                 if gen.warmup_prompts:
                     # Warm-ups are always sequential and finish before the measured
                     # arrival clock / telemetry window begin.
+                    timer.mark("warmup_start")
                     warmups = await run_requests(
                         server.base_url, gen.warmup_prompts, params,
                         t0=t0, max_concurrency=1 if open_loop else concurrency,
                         id_prefix="warmup",
                     )
+                    timer.mark("warmup_end")
                     if any(not m.success for m in warmups):
                         raise _WarmupFailed(warmups)
                 # Measured window (telemetry + arrival origin) starts here.
                 arrival_origin = monotonic()
+                timer.mark_at("measured_start", arrival_origin)
                 sampler = TelemetrySampler(server.base_url, t0=arrival_origin)
                 arrivals: Optional[dict] = None
                 try:
@@ -290,6 +300,7 @@ def run_experiment(
                             id_prefix="measured",
                         )
                     m_end = monotonic()
+                    timer.mark_at("measured_end", m_end)
                 finally:
                     telemetry = sampler.stop()
                 return (
@@ -312,6 +323,7 @@ def run_experiment(
                     started_at, effective_config=effective,
                 )
             else:
+                timer.mark("finalize_start")
                 if warmups:
                     write_warmup(run_dir, warmups)
                 write_telemetry(run_dir, samples)
@@ -332,6 +344,7 @@ def run_experiment(
                     started_at=started_at,
                     finished_at=_now(),
                 )
+                timer.mark("finalize_end")
 
     except KeyboardInterrupt:
         if result is None:
@@ -350,13 +363,30 @@ def run_experiment(
         # stop() records the teardown boundary; classify errors before vs after it
         # so intentional-teardown noise is not confused with startup/measurement
         # failures. Logs are classified, never suppressed.
+        timer.mark("teardown_start")
         server.stop()
+        timer.mark("teardown_end")
         try:
             write_lifecycle(run_dir, server.classify_log_errors())
         except (OSError, FileExistsError):
             pass
         if result is not None:
             write_result(run_dir, result)
+        # Phase timing is written AFTER cleanup on every terminal path, without
+        # weakening always-cleanup behavior (its failure never masks the result).
+        if timer.started:
+            try:
+                agg_duration = (
+                    result.aggregates.duration_s
+                    if result is not None
+                    and result.status is ExperimentStatus.COMPLETED
+                    and result.aggregates is not None
+                    else None
+                )
+                terminal = result.status.value if result is not None else "failed"
+                write_phases(run_dir, timer.build(terminal, agg_duration))
+            except (OSError, FileExistsError, ValueError):
+                pass
 
     assert result is not None
     return result
