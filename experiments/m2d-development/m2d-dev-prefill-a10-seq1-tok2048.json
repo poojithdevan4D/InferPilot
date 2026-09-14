@@ -1,0 +1,46 @@
+{
+  "schema_version": "0.5.0",
+  "experiment_id": "m2d-dev-prefill-a10-seq1-tok2048",
+  "name": "m2d-dev-prefill-a10-seq1-tok2048",
+  "description": "M2D preregistered development pilot; characterization only. shape=prefill, arrival_seed=10, max_num_seqs=1, max_num_batched_tokens=2048. No SLO or winner declared.",
+  "engine": {
+    "model": "Qwen/Qwen2.5-0.5B-Instruct",
+    "revision": "7ae557604adf67be50417f59c2c2f167def9a775",
+    "dtype": "auto",
+    "max_model_len": 2048,
+    "max_num_seqs": 1,
+    "max_num_batched_tokens": 2048,
+    "gpu_memory_utilization": 0.85,
+    "kv_cache_dtype": "auto",
+    "enable_prefix_caching": false,
+    "enable_chunked_prefill": null,
+    "sampler_backend": "pytorch",
+    "generation_config": "vllm",
+    "extra_args": {}
+  },
+  "workload": {
+    "name": "m2d-dev-prefill",
+    "num_requests": 128,
+    "warmup_requests": 4,
+    "prompt_tokens": 1024,
+    "output_tokens": 16,
+    "request_rate_qps": 4.0,
+    "arrival_pattern": "poisson-v1",
+    "burst_size": null,
+    "max_concurrency": null,
+    "temperature": 0.0,
+    "ignore_eos": true,
+    "seed": 0,
+    "prompt_seed": 1001,
+    "arrival_seed": 10
+  },
+  "slo": null,
+  "seed": 0,
+  "tags": [
+    "m2d",
+    "development",
+    "pilot",
+    "prefill",
+    "poisson-v1"
+  ]
+}
