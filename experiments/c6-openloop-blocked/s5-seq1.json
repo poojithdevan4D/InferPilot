@@ -1,0 +1,42 @@
+{
+  "schema_version": "0.3.0",
+  "experiment_id": "c6-s5-seq1",
+  "name": "c6-openloop-s5-seq1",
+  "description": "C6 preregistered blocked confirmatory study: nominal 8 QPS, workload seed 5, max_num_seqs=1. The explicit study SLO and objective live in study.json, not in this run config.",
+  "engine": {
+    "model": "Qwen/Qwen2.5-0.5B-Instruct",
+    "revision": "7ae557604adf67be50417f59c2c2f167def9a775",
+    "dtype": "auto",
+    "max_model_len": 2048,
+    "max_num_seqs": 1,
+    "max_num_batched_tokens": 2048,
+    "gpu_memory_utilization": 0.85,
+    "kv_cache_dtype": "auto",
+    "enable_prefix_caching": false,
+    "enable_chunked_prefill": null,
+    "sampler_backend": "pytorch",
+    "generation_config": "vllm",
+    "extra_args": {}
+  },
+  "workload": {
+    "name": "c6-openloop-poisson8",
+    "num_requests": 256,
+    "warmup_requests": 4,
+    "prompt_tokens": 128,
+    "output_tokens": 32,
+    "request_rate_qps": 8.0,
+    "max_concurrency": null,
+    "temperature": 0.0,
+    "ignore_eos": true,
+    "seed": 5
+  },
+  "slo": null,
+  "seed": 0,
+  "tags": [
+    "c6",
+    "open-loop",
+    "poisson-v1",
+    "blocked",
+    "confirmatory"
+  ]
+}
