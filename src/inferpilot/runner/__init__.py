@@ -1,0 +1,53 @@
+"""InferPilot Milestone-1 benchmark runner.
+
+Vertical slice: start a vLLM server, run a fixed characterization workload,
+measure raw per-request timings, aggregate, and persist one immutable result.
+
+Concerns are separated into modules:
+    server        — process management (shell-free subprocess + health poll)
+    workload_gen  — deterministic prompt construction
+    client        — async streaming measurement client
+    aggregate     — pure percentile / aggregate computation
+    artifacts     — unique run dir + immutable result JSON
+    orchestrator  — glue + outcome classification (COMPLETED/FAILED/OOM/TIMEOUT)
+"""
+
+from __future__ import annotations
+
+from .aggregate import compute_aggregates, percentile
+from .client import GenerationParams, run_requests
+from .defaults import (
+    BENCH_PYTHON_VERSION,
+    DEFAULT_MODEL,
+    DEFAULT_MODEL_REVISION,
+    PINNED_VLLM_VERSION,
+)
+from .orchestrator import capture_environment, run_experiment
+from .server import (
+    ManagedServer,
+    ServerReadinessTimeout,
+    ServerStartupError,
+    build_vllm_command,
+    find_free_port,
+)
+from .workload_gen import GeneratedWorkload, generate_workload
+
+__all__ = [
+    "run_experiment",
+    "capture_environment",
+    "compute_aggregates",
+    "percentile",
+    "GenerationParams",
+    "run_requests",
+    "ManagedServer",
+    "ServerReadinessTimeout",
+    "ServerStartupError",
+    "build_vllm_command",
+    "find_free_port",
+    "GeneratedWorkload",
+    "generate_workload",
+    "BENCH_PYTHON_VERSION",
+    "PINNED_VLLM_VERSION",
+    "DEFAULT_MODEL",
+    "DEFAULT_MODEL_REVISION",
+]

@@ -28,6 +28,13 @@ class EngineConfig(SchemaModel):
     model: str = Field(
         description="Model identifier (e.g. HF repo id or local path). Operator-chosen.",
     )
+    revision: Optional[str] = Field(
+        default=None,
+        description=(
+            "Exact model revision (HF commit sha / branch / tag) to pin. Recorded "
+            "in the result so a run is reproducible against a specific weights snapshot."
+        ),
+    )
     dtype: str = Field(default="auto", description="Weight/compute dtype, e.g. 'auto', 'float16'.")
     max_model_len: Optional[int] = Field(
         default=None, gt=0, description="Max sequence length; None => engine default."

@@ -95,8 +95,12 @@ class ExperimentResult(VersionedSchemaModel):
       ``aggregates`` nor ``failure``.
     * If both timestamps are set, ``finished_at >= started_at``.
 
-    (``SKIPPED`` is intentionally left unconstrained here beyond the
-    failure.status match — see README "contract decisions for review".)
+    **Eligibility policy:** only a ``COMPLETED`` result is eligible to serve as a
+    baseline or to drive optimization (see :pyattr:`is_baseline_eligible`).
+    A failed run (``FAILED`` / ``OOM`` / ``TIMEOUT``) may still *store* partial
+    ``aggregates`` computed from whatever completed before the failure, but those
+    numbers must never be compared against a baseline or used to accept/reject an
+    optimization — they were not produced under a full, clean run.
     """
 
     config: ExperimentConfig
@@ -109,6 +113,14 @@ class ExperimentResult(VersionedSchemaModel):
 
     started_at: Optional[datetime] = Field(default=None)
     finished_at: Optional[datetime] = Field(default=None)
+
+    @property
+    def is_baseline_eligible(self) -> bool:
+        """True iff this result may be used as a baseline / optimization signal.
+
+        Partial aggregates from failed runs are deliberately excluded.
+        """
+        return self.status is ExperimentStatus.COMPLETED
 
     @model_validator(mode="after")
     def _check_status_consistency(self) -> "ExperimentResult":

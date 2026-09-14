@@ -1,13 +1,14 @@
 {
   "schema_version": "0.1.0",
   "experiment_id": "exp-0001-baseline",
-  "name": "baseline-single-gpu",
-  "description": "Illustrative Milestone-1 baseline config. The model id below is a PLACEHOLDER small model; the real model is an unresolved project decision (see README). Choose a model that fits the target GPU's VRAM.",
+  "name": "qwen2.5-0.5b-characterization",
+  "description": "Milestone-1 baseline characterization: Qwen2.5-0.5B-Instruct pinned to an exact HF revision, deterministic controlled-length generation, closed-loop concurrency 1.",
   "engine": {
-    "model": "facebook/opt-125m",
+    "model": "Qwen/Qwen2.5-0.5B-Instruct",
+    "revision": "7ae557604adf67be50417f59c2c2f167def9a775",
     "dtype": "auto",
     "max_model_len": 2048,
-    "max_num_seqs": 16,
+    "max_num_seqs": 1,
     "max_num_batched_tokens": 2048,
     "gpu_memory_utilization": 0.85,
     "kv_cache_dtype": "auto",
@@ -16,15 +17,18 @@
     "extra_args": {}
   },
   "workload": {
-    "name": "chat-short",
-    "num_requests": 64,
+    "name": "characterization-c1",
+    "num_requests": 32,
+    "warmup_requests": 4,
     "prompt_tokens": 128,
-    "output_tokens": 128,
+    "output_tokens": 32,
     "request_rate_qps": null,
-    "max_concurrency": 8,
+    "max_concurrency": 1,
+    "temperature": 0.0,
+    "ignore_eos": true,
     "seed": 0
   },
   "slo": null,
   "seed": 0,
-  "tags": ["baseline", "milestone-1"]
+  "tags": ["baseline", "milestone-1", "characterization"]
 }

@@ -26,13 +26,18 @@ class WorkloadSpec(SchemaModel):
     """
 
     name: str = Field(description="Human-readable workload label, e.g. 'chat-short'.")
-    num_requests: int = Field(gt=0, description="Total number of requests to issue.")
+    num_requests: int = Field(gt=0, description="Number of MEASURED requests to issue.")
+    warmup_requests: int = Field(
+        default=0,
+        ge=0,
+        description="Requests to issue before measurement; excluded from aggregates.",
+    )
 
     prompt_tokens: int = Field(
         gt=0, description="Target prompt length in tokens (fixed-length workload)."
     )
     output_tokens: int = Field(
-        gt=0, description="Target number of generated tokens per request."
+        gt=0, description="Number of generated tokens requested per request (max_tokens)."
     )
 
     request_rate_qps: Optional[float] = Field(
@@ -44,6 +49,21 @@ class WorkloadSpec(SchemaModel):
         default=None,
         gt=0,
         description="Max in-flight requests for closed-loop mode.",
+    )
+
+    # --- generation control (for stable, reproducible timing) -----------
+    temperature: float = Field(
+        default=0.0,
+        ge=0.0,
+        description="Sampling temperature; 0.0 => greedy/deterministic generation.",
+    )
+    ignore_eos: bool = Field(
+        default=False,
+        description=(
+            "Force controlled-length generation: ignore EOS and require exactly "
+            "output_tokens tokens (paired with min_tokens on the request) so a "
+            "premature EOS does not shorten and invalidate timing."
+        ),
     )
 
     seed: int = Field(default=0, description="RNG seed for reproducible generation.")

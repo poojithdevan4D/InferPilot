@@ -31,6 +31,14 @@ class RequestMeasurement(SchemaModel):
       be absent whenever ``output_tokens < 2`` (in particular, one-token
       outputs have no TPOT), and must be present for a successful request with
       ``output_tokens >= 2``.
+
+    TPOT is computed with the agreed formula::
+
+        tpot_ms = (e2e_latency_ms - ttft_ms) / (output_tokens - 1)
+
+    i.e. the time spent generating every token *after* the first, divided by the
+    number of such inter-token steps. The producer is responsible for computing
+    it this way; the schema only enforces the presence/absence rule above.
     """
 
     request_id: str = Field(description="Unique id within the experiment.")

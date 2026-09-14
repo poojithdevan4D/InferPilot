@@ -26,7 +26,6 @@ class ExperimentStatus(str, Enum):
     FAILED = "failed"
     OOM = "oom"
     TIMEOUT = "timeout"
-    SKIPPED = "skipped"
 
     @property
     def is_terminal(self) -> bool:

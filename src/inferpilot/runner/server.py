@@ -1,0 +1,212 @@
+"""vLLM server-process adapter (process management only).
+
+Responsibilities, and nothing else:
+
+* build the server argv **without a shell** (no ``shell=True``, no string parsing),
+* pick a free local port,
+* capture stdout/stderr to artifact files,
+* poll a readiness endpoint with a timeout,
+* stop gracefully (SIGTERM/terminate) and force-kill only after a timeout,
+* always clean up, even on exception / interruption (context manager).
+
+This module does not know about workloads, measurements, or results. It also
+does not import vLLM — it launches it as a subprocess so automated tests need no
+GPU, no model, and no vLLM install.
+"""
+
+from __future__ import annotations
+
+import socket
+import subprocess
+import sys
+import urllib.error
+import urllib.request
+from pathlib import Path
+from time import monotonic, sleep
+from types import TracebackType
+from typing import IO, Optional
+
+from ..config import EngineConfig
+
+
+class ServerError(RuntimeError):
+    """Base class for server lifecycle problems."""
+
+
+class ServerStartupError(ServerError):
+    """The server process exited before becoming ready."""
+
+
+class ServerReadinessTimeout(ServerError):
+    """The server did not become ready within the allotted time."""
+
+
+def find_free_port(host: str = "127.0.0.1") -> int:
+    """Return a currently-free TCP port on ``host`` (best-effort, race-free enough)."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        sock.bind((host, 0))
+        return sock.getsockname()[1]
+
+
+def build_vllm_command(
+    engine: EngineConfig,
+    port: int,
+    host: str = "127.0.0.1",
+    python_executable: str = sys.executable,
+) -> list[str]:
+    """Build the argv for the vLLM OpenAI-compatible server (no shell).
+
+    Returned as a list so it is passed to ``subprocess`` with ``shell=False``.
+    """
+    cmd: list[str] = [
+        python_executable,
+        "-m",
+        "vllm.entrypoints.openai.api_server",
+        "--host",
+        host,
+        "--port",
+        str(port),
+        "--model",
+        engine.model,
+        "--dtype",
+        engine.dtype,
+        "--gpu-memory-utilization",
+        str(engine.gpu_memory_utilization),
+        "--kv-cache-dtype",
+        engine.kv_cache_dtype,
+    ]
+    if engine.revision is not None:
+        cmd += ["--revision", engine.revision]
+    if engine.max_model_len is not None:
+        cmd += ["--max-model-len", str(engine.max_model_len)]
+    if engine.max_num_seqs is not None:
+        cmd += ["--max-num-seqs", str(engine.max_num_seqs)]
+    if engine.max_num_batched_tokens is not None:
+        cmd += ["--max-num-batched-tokens", str(engine.max_num_batched_tokens)]
+    if engine.enable_prefix_caching:
+        cmd += ["--enable-prefix-caching"]
+    if engine.enable_chunked_prefill is True:
+        cmd += ["--enable-chunked-prefill"]
+    elif engine.enable_chunked_prefill is False:
+        cmd += ["--no-enable-chunked-prefill"]
+    for key, value in engine.extra_args.items():
+        cmd += [f"--{key}", str(value)]
+    return cmd
+
+
+class ManagedServer:
+    """Context-managed subprocess with health polling and guaranteed cleanup.
+
+    Named "vLLM adapter" but mechanically it manages any HTTP subprocess exposing
+    a health endpoint, which is what makes it testable without vLLM.
+    """
+
+    def __init__(
+        self,
+        command: list[str],
+        *,
+        host: str,
+        port: int,
+        stdout_path: Path,
+        stderr_path: Path,
+        health_path: str = "/health",
+        ready_timeout_s: float = 300.0,
+        poll_interval_s: float = 0.5,
+        terminate_timeout_s: float = 15.0,
+    ) -> None:
+        self.command = command
+        self.host = host
+        self.port = port
+        self.stdout_path = Path(stdout_path)
+        self.stderr_path = Path(stderr_path)
+        self.health_path = health_path
+        self.ready_timeout_s = ready_timeout_s
+        self.poll_interval_s = poll_interval_s
+        self.terminate_timeout_s = terminate_timeout_s
+
+        self._process: Optional[subprocess.Popen[bytes]] = None
+        self._stdout_fh: Optional[IO[bytes]] = None
+        self._stderr_fh: Optional[IO[bytes]] = None
+
+    # -- lifecycle -------------------------------------------------------
+    @property
+    def base_url(self) -> str:
+        return f"http://{self.host}:{self.port}"
+
+    def start(self) -> None:
+        self.stdout_path.parent.mkdir(parents=True, exist_ok=True)
+        self._stdout_fh = open(self.stdout_path, "wb")
+        self._stderr_fh = open(self.stderr_path, "wb")
+        # shell=False (list argv): no shell interpretation of any argument.
+        self._process = subprocess.Popen(
+            self.command,
+            stdout=self._stdout_fh,
+            stderr=self._stderr_fh,
+            shell=False,
+        )
+
+    def wait_until_ready(self) -> None:
+        assert self._process is not None, "start() must be called first"
+        deadline = monotonic() + self.ready_timeout_s
+        health_url = f"{self.base_url}{self.health_path}"
+        while monotonic() < deadline:
+            exit_code = self._process.poll()
+            if exit_code is not None:
+                raise ServerStartupError(
+                    f"server exited with code {exit_code} before readiness; "
+                    f"see {self.stderr_path}"
+                )
+            if self._probe(health_url):
+                return
+            sleep(self.poll_interval_s)
+        raise ServerReadinessTimeout(
+            f"server not ready within {self.ready_timeout_s}s at {health_url}"
+        )
+
+    @staticmethod
+    def _probe(url: str) -> bool:
+        try:
+            with urllib.request.urlopen(url, timeout=2.0) as resp:  # noqa: S310 (localhost)
+                return 200 <= resp.status < 300
+        except (urllib.error.URLError, OSError, ValueError):
+            return False
+
+    def stop(self) -> None:
+        """Terminate gracefully; escalate to kill after ``terminate_timeout_s``."""
+        proc = self._process
+        if proc is not None and proc.poll() is None:
+            proc.terminate()
+            try:
+                proc.wait(timeout=self.terminate_timeout_s)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                try:
+                    proc.wait(timeout=self.terminate_timeout_s)
+                except subprocess.TimeoutExpired:
+                    pass
+        for fh in (self._stdout_fh, self._stderr_fh):
+            if fh is not None and not fh.closed:
+                fh.close()
+        self._stdout_fh = None
+        self._stderr_fh = None
+
+    def read_stderr(self) -> str:
+        try:
+            return self.stderr_path.read_text(errors="replace")
+        except OSError:
+            return ""
+
+    # -- context manager -------------------------------------------------
+    def __enter__(self) -> "ManagedServer":
+        self.start()
+        return self
+
+    def __exit__(
+        self,
+        exc_type: Optional[type[BaseException]],
+        exc: Optional[BaseException],
+        tb: Optional[TracebackType],
+    ) -> None:
+        # Always clean up — normal exit, exception, or KeyboardInterrupt.
+        self.stop()
