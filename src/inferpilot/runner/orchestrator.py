@@ -19,12 +19,14 @@ from time import monotonic
 from typing import Callable, Optional
 
 from ..config import ExperimentConfig
-from ..environment import EnvironmentMetadata, HardwareInfo
+from ..environment import EnvironmentMetadata
+from ..measurements import RequestMeasurement
 from ..results import AggregateMetrics, ExperimentResult
 from ..status import ExperimentStatus, FailureRecord
 from .aggregate import compute_aggregates
-from .artifacts import create_run_dir, server_log_paths, write_result
+from .artifacts import create_run_dir, server_log_paths, write_result, write_warmup
 from .client import GenerationParams, run_requests
+from .hardware import discover_hardware
 from .server import (
     ManagedServer,
     ServerReadinessTimeout,
@@ -37,6 +39,14 @@ from .workload_gen import generate_workload
 CommandBuilder = Callable[[int], list[str]]
 
 _OOM_SIGNATURES = ("out of memory", "outofmemory", "cuda error: out of memory")
+
+
+class _WarmupFailed(Exception):
+    """Raised when any warm-up request fails; carries the warm-up measurements."""
+
+    def __init__(self, measurements: list[RequestMeasurement]) -> None:
+        super().__init__("warm-up request(s) failed")
+        self.measurements = measurements
 
 
 def _pkg_version(name: str) -> Optional[str]:
@@ -53,14 +63,14 @@ def _now() -> datetime:
 
 
 def capture_environment() -> EnvironmentMetadata:
-    """Best-effort environment snapshot. No GPU polling (out of scope)."""
+    """One-time best-effort environment + hardware snapshot (no GPU polling)."""
     return EnvironmentMetadata(
         hostname=socket.gethostname(),
         platform=platform.platform(),
         python_version=platform.python_version(),
         torch_version=_pkg_version("torch"),
         vllm_version=_pkg_version("vllm"),
-        hardware=HardwareInfo(),  # left unpopulated; discovery is future work
+        hardware=discover_hardware(),
         captured_at=_now(),
     )
 
@@ -184,32 +194,53 @@ def run_experiment(
             params = _generation_params(config, request_timeout_s)
             concurrency = workload.max_concurrency or 1
 
-            async def _run_all() -> tuple[list, float]:
+            async def _run_all() -> tuple[list, list, float]:
                 t0 = monotonic()
+                warmups: list[RequestMeasurement] = []
                 if gen.warmup_prompts:
-                    await run_requests(
+                    warmups = await run_requests(
                         server.base_url, gen.warmup_prompts, params,
                         t0=t0, max_concurrency=concurrency, id_prefix="warmup",
                     )
+                    # A failed warm-up means the server/config is not healthy
+                    # enough to trust measured timing — stop before measuring.
+                    if any(not m.success for m in warmups):
+                        raise _WarmupFailed(warmups)
                 m_start = monotonic()
                 measured = await run_requests(
                     server.base_url, gen.measured_prompts, params,
                     t0=t0, max_concurrency=concurrency, id_prefix="measured",
                 )
                 m_end = monotonic()
-                return measured, (m_end - m_start)
+                return warmups, measured, (m_end - m_start)
 
-            measured, duration_s = asyncio.run(_run_all())
-            aggregates = compute_aggregates(measured, duration_s)
-            result = ExperimentResult(
-                config=config,
-                environment=environment,
-                status=ExperimentStatus.COMPLETED,
-                measurements=measured,
-                aggregates=aggregates,
-                started_at=started_at,
-                finished_at=_now(),
-            )
+            try:
+                warmups, measured, duration_s = asyncio.run(_run_all())
+            except _WarmupFailed as wf:
+                # Preserve warm-up diagnostics as a separate artifact; never mix
+                # warm-ups into measured aggregates.
+                write_warmup(run_dir, wf.measurements)
+                failed = [m for m in wf.measurements if not m.success]
+                first_error = failed[0].error if failed else "unknown"
+                result = _failure_result(
+                    config, environment, ExperimentStatus.FAILED, "WarmupFailure",
+                    f"{len(failed)}/{len(wf.measurements)} warm-up request(s) failed "
+                    f"before measured execution; first error: {first_error}",
+                    started_at,
+                )
+            else:
+                if warmups:
+                    write_warmup(run_dir, warmups)
+                aggregates = compute_aggregates(measured, duration_s)
+                result = ExperimentResult(
+                    config=config,
+                    environment=environment,
+                    status=ExperimentStatus.COMPLETED,
+                    measurements=measured,
+                    aggregates=aggregates,
+                    started_at=started_at,
+                    finished_at=_now(),
+                )
 
     except KeyboardInterrupt:
         if result is None:

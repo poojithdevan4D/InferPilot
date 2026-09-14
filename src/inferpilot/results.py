@@ -95,12 +95,17 @@ class ExperimentResult(VersionedSchemaModel):
       ``aggregates`` nor ``failure``.
     * If both timestamps are set, ``finished_at >= started_at``.
 
-    **Eligibility policy:** only a ``COMPLETED`` result is eligible to serve as a
-    baseline or to drive optimization (see :pyattr:`is_baseline_eligible`).
-    A failed run (``FAILED`` / ``OOM`` / ``TIMEOUT``) may still *store* partial
-    ``aggregates`` computed from whatever completed before the failure, but those
-    numbers must never be compared against a baseline or used to accept/reject an
-    optimization — they were not produced under a full, clean run.
+    **``COMPLETED`` means orchestration completed, not that the benchmark is
+    valid.** A run whose server started and whose measured workload executed to
+    the end is ``COMPLETED`` even if every request failed. Benchmark validity is a
+    separate, stricter question answered by :pyattr:`is_baseline_eligible`.
+
+    **Eligibility policy:** only a fully clean ``COMPLETED`` run is eligible to
+    serve as a baseline or to drive optimization (see
+    :pyattr:`is_baseline_eligible`). A failed run (``FAILED`` / ``OOM`` /
+    ``TIMEOUT``) — or a ``COMPLETED`` run with any failed/missing measurements —
+    may still *store* partial ``aggregates``, but those numbers must never be
+    compared against a baseline or used to accept/reject an optimization.
     """
 
     config: ExperimentConfig
@@ -116,11 +121,46 @@ class ExperimentResult(VersionedSchemaModel):
 
     @property
     def is_baseline_eligible(self) -> bool:
-        """True iff this result may be used as a baseline / optimization signal.
+        """True iff this result is a fully clean run usable as a baseline / signal.
 
-        Partial aggregates from failed runs are deliberately excluded.
+        Requires ALL of:
+
+        * ``status`` is ``COMPLETED``,
+        * ``aggregates`` present,
+        * every configured request was measured
+          (``num_requests == config.workload.num_requests``),
+        * every request succeeded (``num_successful == config.workload.num_requests``
+          and ``num_failed == 0``),
+        * the latency/throughput fields needed for comparison are all populated.
+
+        Partial aggregates from failed or partially-failed runs are excluded.
         """
-        return self.status is ExperimentStatus.COMPLETED
+        if self.status is not ExperimentStatus.COMPLETED:
+            return False
+        agg = self.aggregates
+        if agg is None:
+            return False
+
+        expected = self.config.workload.num_requests
+        if agg.num_requests != expected:
+            return False
+        if agg.num_successful != expected or agg.num_failed != 0:
+            return False
+
+        required_metrics = (
+            agg.ttft_p50_ms,
+            agg.ttft_p95_ms,
+            agg.ttft_p99_ms,
+            agg.tpot_p50_ms,
+            agg.tpot_p95_ms,
+            agg.tpot_p99_ms,
+            agg.e2e_p50_ms,
+            agg.e2e_p95_ms,
+            agg.e2e_p99_ms,
+            agg.throughput_tokens_per_s,
+            agg.throughput_requests_per_s,
+        )
+        return all(v is not None for v in required_metrics)
 
     @model_validator(mode="after")
     def _check_status_consistency(self) -> "ExperimentResult":

@@ -198,10 +198,23 @@ depends on them:
 - **Failed requests keep best-effort timings.** Failures must carry an `error`
   but may retain partial `ttft_ms`/`tpot_ms`/`e2e_latency_ms` (not forced to
   `None`), so partial-progress data survives.
-- **Eligibility.** Only `COMPLETED` results are baseline/optimization-eligible
-  (`ExperimentResult.is_baseline_eligible`). `FAILED`/`OOM`/`TIMEOUT` may store
-  partial aggregates but they must never drive a comparison. `COMPLETED` requires
-  aggregates and forbids a `failure`.
+- **`COMPLETED` ≠ valid benchmark.** `COMPLETED` means *orchestration* finished
+  (server started, measured workload ran to the end) — even if every request
+  failed. Benchmark validity is the separate, stricter
+  `ExperimentResult.is_baseline_eligible`, which requires: status `COMPLETED`,
+  aggregates present, `num_requests == config.workload.num_requests`, all
+  requests succeeded (`num_failed == 0`), and every comparison metric
+  (ttft/tpot/e2e p50·p95·p99 + both throughputs) populated. `FAILED`/`OOM`/
+  `TIMEOUT` and partial/all-failed runs are ineligible but may still store partial
+  aggregates.
+- **Warm-up failure aborts before measuring.** If any warm-up request fails, the
+  runner stops and emits a `FAILED` result with error type `WarmupFailure`; warm-up
+  measurements are preserved in a separate `warmup.json` artifact and never mixed
+  into measured aggregates.
+- **Hardware snapshot is one-time + best-effort.** GPU/CPU/RAM + driver/CUDA and
+  Python/PyTorch/vLLM versions are captured once at run start; missing tooling
+  (e.g. no `nvidia-smi`) degrades to `null` fields rather than aborting. No
+  continuous GPU polling.
 - **Zero-duration aggregates.** A completed/aggregated run over ≥ 1 request must
   have `duration_s > 0`; zero duration is valid only for an empty
   (`num_requests == 0`) aggregate.

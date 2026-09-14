@@ -22,6 +22,7 @@ from .defaults import (
     DEFAULT_MODEL_REVISION,
     PINNED_VLLM_VERSION,
 )
+from .hardware import discover_hardware
 from .orchestrator import capture_environment, run_experiment
 from .server import (
     ManagedServer,
@@ -35,6 +36,7 @@ from .workload_gen import GeneratedWorkload, generate_workload
 __all__ = [
     "run_experiment",
     "capture_environment",
+    "discover_hardware",
     "compute_aggregates",
     "percentile",
     "GenerationParams",

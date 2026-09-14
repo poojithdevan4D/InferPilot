@@ -6,6 +6,7 @@ immutable artifact. No GPU, model, or vLLM required.
 
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 
@@ -82,10 +83,32 @@ def test_request_failures_still_complete_with_failed_measurements(tmp_path) -> N
     result = run_experiment(
         cfg, str(tmp_path), command_builder=_builder("error500"), ready_timeout_s=15.0
     )
-    assert result.status is ExperimentStatus.COMPLETED
+    assert result.status is ExperimentStatus.COMPLETED  # orchestration completed
     assert result.aggregates is not None
     assert result.aggregates.num_failed == 2
     assert result.aggregates.num_successful == 0
+    assert result.is_baseline_eligible is False  # but not a valid benchmark
+
+
+def test_warmup_failure_prevents_measured_execution(tmp_path) -> None:
+    cfg = _config(num_requests=5, warmup=2)
+    result = run_experiment(
+        cfg, str(tmp_path), command_builder=_builder("error500"), ready_timeout_s=15.0
+    )
+    assert result.status is ExperimentStatus.FAILED
+    assert result.failure is not None
+    assert result.failure.error_type == "WarmupFailure"
+    assert result.aggregates is None
+    assert result.measurements == []  # measured requests never ran
+    assert result.is_baseline_eligible is False
+
+    # warm-up diagnostics preserved separately, not mixed into measured aggregates.
+    run_dir = list(tmp_path.iterdir())[0]
+    warmup_file = run_dir / "warmup.json"
+    assert warmup_file.exists()
+    entries = json.loads(warmup_file.read_text())
+    assert len(entries) == 2
+    assert all(e["success"] is False for e in entries)
 
 
 def test_readiness_timeout_produces_timeout_result(tmp_path) -> None:

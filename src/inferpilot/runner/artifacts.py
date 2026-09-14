@@ -7,14 +7,18 @@ stored result is immutable; server logs live alongside it in the same directory.
 
 from __future__ import annotations
 
+import json
 import os
 import stat
 import uuid
 from pathlib import Path
+from typing import Sequence
 
+from ..measurements import RequestMeasurement
 from ..results import ExperimentResult
 
 RESULT_FILENAME = "result.json"
+WARMUP_FILENAME = "warmup.json"
 SERVER_STDOUT_FILENAME = "server.stdout.log"
 SERVER_STDERR_FILENAME = "server.stderr.log"
 
@@ -38,6 +42,18 @@ def result_path(run_dir: Path) -> Path:
 
 def server_log_paths(run_dir: Path) -> tuple[Path, Path]:
     return run_dir / SERVER_STDOUT_FILENAME, run_dir / SERVER_STDERR_FILENAME
+
+
+def write_warmup(run_dir: Path, measurements: Sequence[RequestMeasurement]) -> Path:
+    """Persist warm-up measurements as a separate diagnostics artifact.
+
+    Kept out of the measured result on purpose: warm-ups must never enter the
+    measured aggregates, but their timings/errors are useful for debugging.
+    """
+    path = run_dir / WARMUP_FILENAME
+    payload = [m.model_dump(mode="json") for m in measurements]
+    path.write_text(json.dumps(payload, indent=2))
+    return path
 
 
 def write_result(run_dir: Path, result: ExperimentResult) -> Path:
