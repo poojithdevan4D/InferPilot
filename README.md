@@ -11,8 +11,10 @@ Full vision: [`InferPilot — Shared Project Context.md`](./InferPilot%20%E2%80%
 This repository contains the validated, serializable data contracts **and** the first
 vertical slice of the benchmark runner (`inferpilot.runner`): start a vLLM server, run a
 fixed characterization workload, measure raw per-request timings, aggregate, and store one
-immutable result. There is deliberately still **no** optimization/search, SLO evaluation,
-distributed execution, database, web UI, or LLM-driven decision logic.
+immutable result. The repository now also contains evidence comparison, explicit SLO
+decisions, and outcome-blind offline replay for conventional search baselines. There is
+deliberately still **no live optimizer**, distributed execution, database, web UI, or
+LLM-driven decision logic.
 
 The runner does **not** wrap or parse `vllm bench` — InferPilot owns its raw request
 measurements end to end.
@@ -97,6 +99,11 @@ src/inferpilot/
     frontier.py      # compatibility-guarded multi-objective Pareto analysis
     decision.py      # explicit SLO feasibility + feasible-cohort ranking
     __main__.py      # ingest, summary, compare, frontier, and evaluate CLI
+  search/
+    policy.py        # outcome-blind declared-order + stable seeded-random baselines
+    replay.py        # fixed-budget replay over complete blocked-study evidence
+    models.py        # self-validating replay spec/report contracts
+    __main__.py      # replay CLI
 examples/
   example_experiment.json
 tests/
@@ -247,6 +254,31 @@ mean of their per-block objective means, and all per-block results are preserved
 immutable and make **no** statistical-significance, confidence-bound, or deployment-safety claim.
 Report versions: comparison `0.2.1`, frontier `0.1.1`, decision `0.1.1`, blocked study `0.1.1`
 (result schema `0.3.0` unchanged).
+
+### Fixed-budget search replay baselines
+
+`inferpilot.search` evaluates conventional candidate-ordering baselines against a complete
+blocked-study report without rerunning the GPU. The baseline order is fixed without accepting
+outcome data: `declared_order-v1` follows candidate order, while `seeded_random-v1` assigns
+each candidate a stable SHA-256 priority using only the policy seed and candidate index.
+
+```bash
+python -m inferpilot.search \
+  runs/blocked-report.json replay-spec.json \
+  --output runs/replay-report.json
+```
+
+Each revealed candidate represents one complete blocked evaluation, so its measurement cost is
+the number of blocks in the source study. The report distinguishes a budget that ended without
+finding feasibility from exhaustive proof that the measured candidate set has no feasible point.
+After replay, it scores the observed choice against the complete-study oracle (`oracle_hit` and
+simple objective regret). The complete source report is embedded and every derived field is
+recomputed on load. Replay report version is exact-gated at `0.1.0`.
+
+This is an **offline evaluation baseline**, not a live optimizer: the unobserved source outcomes
+exist in the replay corpus but are unavailable to baseline ordering. It makes no statistical,
+generalization, or deployment claim. Adaptive policies, Bayesian/TPE search, experiment-cost
+models, and LLM hypothesis generation remain future work.
 
 ### First controlled scheduling experiment
 
