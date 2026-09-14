@@ -53,6 +53,11 @@ class ArrivalEvidence(SchemaModel):
 
     @model_validator(mode="after")
     def _check_offsets(self) -> "ArrivalEvidence":
+        # New artifacts intentionally duplicate the effective arrival seed in
+        # `seed` (the historical field) and `arrival_seed` (the explicit 0.4.0
+        # field). Reject contradictory provenance instead of trusting either.
+        if self.arrival_seed is not None and self.arrival_seed != self.seed:
+            raise ValueError("seed and arrival_seed must agree when both are present")
         if len(self.scheduled_offsets_s) != len(self.actual_dispatch_offsets_s):
             raise ValueError("scheduled and actual arrival offsets must have equal length")
         for name, offsets in (

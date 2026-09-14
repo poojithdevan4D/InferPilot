@@ -92,6 +92,11 @@ def test_features_reject_wrong_arrival_seed() -> None:
         )
 
 
+def test_arrival_evidence_rejects_conflicting_seed_provenance() -> None:
+    with pytest.raises(ValueError, match="seed and arrival_seed must agree"):
+        _evidence(seed=22, arrival_seed=99)
+
+
 def test_features_accept_legacy_seed_only_artifact() -> None:
     # 0.3.0-style artifact (no explicit arrival_seed); binds via its `seed`.
     result = _open_result("0.3.0", seed=7)  # no split seeds under 0.3.0
