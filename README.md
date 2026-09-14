@@ -104,6 +104,9 @@ src/inferpilot/
     replay.py        # fixed-budget replay over complete blocked-study evidence
     models.py        # self-validating replay spec/report contracts
     __main__.py      # replay CLI
+  features/
+    models.py        # arrival artifact + exact-gated online-safe feature report
+    arrival.py       # prefix-only rate/inter-arrival/burst feature extraction
 examples/
   example_experiment.json
 tests/
@@ -279,6 +282,20 @@ This is an **offline evaluation baseline**, not a live optimizer: the unobserved
 exist in the replay corpus but are unavailable to baseline ordering. It makes no statistical,
 generalization, or deployment claim. Adaptive policies, Bayesian/TPE search, experiment-cost
 models, and LLM hypothesis generation remain future work.
+
+### Online-safe workload features
+
+`inferpilot.features.extract_arrival_features` converts a validated open-loop `arrivals.json`
+artifact into a feature prefix at an explicit observation cutoff. It retains only actual
+dispatch offsets at or before the cutoff plus declared prompt/output token targets. It never
+accepts or emits request latency, completion, SLO, or future-arrival outcomes.
+
+The exact-gated feature report (`0.1.0`) contains two deliberately distinct rate estimates:
+arrival count divided by observation-window duration, and inverse mean observed inter-arrival
+time. It also reports population inter-arrival CV and maximum arrivals in closed 250-ms,
+500-ms, 1-s, and 2-s windows. The observed prefix is embedded and every derived feature is
+recomputed on load. Zero/one-arrival prefixes and simultaneous arrivals have explicit
+undefined-field semantics instead of fabricated rates.
 
 ### First controlled scheduling experiment
 
