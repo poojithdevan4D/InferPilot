@@ -71,7 +71,38 @@ class WorkloadSpec(SchemaModel):
         ),
     )
 
-    seed: int = Field(default=0, description="RNG seed for reproducible generation.")
+    seed: int = Field(
+        default=0,
+        description=(
+            "Legacy RNG seed (schema 0.3.0 semantics): controls BOTH prompt "
+            "generation and the arrival schedule. Under 0.4.0 it is the fallback "
+            "for prompt_seed / arrival_seed when either is omitted."
+        ),
+    )
+    prompt_seed: Optional[int] = Field(
+        default=None,
+        description=(
+            "Prompt-generation seed (schema 0.4.0). None => fall back to `seed`. "
+            "Must remain None under schema 0.3.0."
+        ),
+    )
+    arrival_seed: Optional[int] = Field(
+        default=None,
+        description=(
+            "Arrival-schedule (Poisson) seed (schema 0.4.0). None => fall back to "
+            "`seed`. Must remain None under schema 0.3.0."
+        ),
+    )
+
+    @property
+    def effective_prompt_seed(self) -> int:
+        """Seed used for prompt generation: prompt_seed if set, else legacy seed."""
+        return self.prompt_seed if self.prompt_seed is not None else self.seed
+
+    @property
+    def effective_arrival_seed(self) -> int:
+        """Seed used for the arrival schedule: arrival_seed if set, else legacy seed."""
+        return self.arrival_seed if self.arrival_seed is not None else self.seed
 
     @model_validator(mode="after")
     def _check_arrival_pattern(self) -> "WorkloadSpec":

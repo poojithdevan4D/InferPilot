@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from typing import Any, Literal, Optional
 
-from pydantic import Field
+from pydantic import Field, model_validator
 
 from ._base import SchemaModel, VersionedSchemaModel
 
@@ -132,6 +132,19 @@ class ExperimentConfig(VersionedSchemaModel):
 
     seed: int = Field(default=0, description="Top-level seed for reproducibility.")
     tags: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _check_split_seed_schema(self) -> "ExperimentConfig":
+        # Split prompt/arrival seeds are a 0.4.0 feature; a 0.3.0 config must use
+        # only the single legacy seed so its meaning is unambiguous.
+        if self.schema_version == "0.3.0" and (
+            self.workload.prompt_seed is not None or self.workload.arrival_seed is not None
+        ):
+            raise ValueError(
+                "prompt_seed/arrival_seed require schema_version 0.4.0; "
+                "schema 0.3.0 uses the single legacy seed"
+            )
+        return self
 
 
 # Resolve the forward reference to WorkloadSpec without a circular import cost.

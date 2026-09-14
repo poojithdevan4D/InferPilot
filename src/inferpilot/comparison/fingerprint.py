@@ -50,6 +50,16 @@ def _identity_payload(
     for key in ("experiment_id", "name", "description", "tags"):
         config.pop(key, None)
 
+    # Backward compatibility: the 0.4.0 split-seed fields are stripped when they
+    # are absent/None (legacy behavior), so a loaded 0.3.0 config yields exactly
+    # its historical identity payload. When explicitly set they stay in the
+    # payload and remain compatibility-significant.
+    workload = config.get("workload")
+    if isinstance(workload, dict):
+        for key in ("prompt_seed", "arrival_seed"):
+            if workload.get(key) is None:
+                workload.pop(key, None)
+
     environment = result.environment.model_dump(mode="json")
     environment.pop("captured_at", None)
     environment.pop("hostname", None)
@@ -96,5 +106,9 @@ def cross_block_fingerprint(
     if not fields:
         raise ValueError("at least one varied engine field is required")
     payload = _identity_payload(result, fields)
+    # A block varies the ARRIVAL randomness: strip the legacy conflated seed and
+    # the 0.4.0 arrival_seed. The prompt seed is NOT stripped — prompt content
+    # must stay fixed across a study's blocks.
     _delete_path(payload, "config.workload.seed")
+    _delete_path(payload, "config.workload.arrival_seed")
     return _digest(payload)

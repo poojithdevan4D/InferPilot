@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-SCHEMA_VERSION = "0.3.0"
+SCHEMA_VERSION = "0.4.0"
 
 # Versions this codebase knows how to interpret. Loading an object stamped with
 # any other version must fail loudly rather than being silently treated as the
@@ -27,8 +27,13 @@ SCHEMA_VERSION = "0.3.0"
 #          provenance; recorded EngineConfig.sampler_backend + env overrides.
 #   0.3.0: added measured-window resource telemetry (ResourceTelemetry) and the
 #          resolved-at-startup EffectiveConfig to ExperimentResult.
-# 0.1.0 and 0.2.0 artifacts are refused loudly rather than reinterpreted.
-SUPPORTED_SCHEMA_VERSIONS: frozenset[str] = frozenset({"0.3.0"})
+#   0.4.0: WorkloadSpec gained optional prompt_seed / arrival_seed. Under 0.4.0
+#          these may be set independently; when omitted they fall back to the
+#          legacy `seed`, exactly reproducing 0.3.0 behavior. 0.3.0 is still read
+#          and MUST NOT set the split seeds. 0.3.0 fingerprints are preserved:
+#          the split-seed keys are stripped from the identity payload when None.
+# 0.3.0 remains supported for read; 0.1.0 and 0.2.0 are refused loudly.
+SUPPORTED_SCHEMA_VERSIONS: frozenset[str] = frozenset({"0.3.0", "0.4.0"})
 
 
 class SchemaModel(BaseModel):
