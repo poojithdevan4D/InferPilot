@@ -1,0 +1,13 @@
+{
+  "spec_version": "0.1.0",
+  "study_id": "c7-qps4-max-num-seqs",
+  "objective": "tpot_p95_ms",
+  "slo": {"ttft_p95_ms": 250.0, "tpot_p95_ms": 8.5},
+  "varied_engine_fields": ["max_num_seqs"],
+  "blocks": [
+    {"seed": 6, "experiment_ids": ["c7-qps4-s6-seq1", "c7-qps4-s6-seq2", "c7-qps4-s6-seq3", "c7-qps4-s6-seq4"]},
+    {"seed": 7, "experiment_ids": ["c7-qps4-s7-seq1", "c7-qps4-s7-seq2", "c7-qps4-s7-seq3", "c7-qps4-s7-seq4"]},
+    {"seed": 8, "experiment_ids": ["c7-qps4-s8-seq1", "c7-qps4-s8-seq2", "c7-qps4-s8-seq3", "c7-qps4-s8-seq4"]}
+  ],
+  "min_runs": 1
+}
