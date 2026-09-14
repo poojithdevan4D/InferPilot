@@ -117,7 +117,7 @@ def _configs(spec: HeldOutCorpusSpec) -> dict[str, ExperimentConfig]:
             for position, experiment_id in enumerate(block.experiment_ids):
                 candidate = spec.candidates[position].engine_values
                 configs[experiment_id] = ExperimentConfig(
-                    schema_version="0.4.0",
+                    schema_version="0.5.0",
                     experiment_id=experiment_id,
                     name=experiment_id,
                     engine=EngineConfig(

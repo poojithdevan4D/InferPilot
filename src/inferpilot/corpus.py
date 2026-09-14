@@ -167,7 +167,7 @@ def validate_corpus_configs(
     spec: HeldOutCorpusSpec,
     configs: Mapping[str, ExperimentConfig],
 ) -> None:
-    """Bind generated 0.4.0 configs to a preregistered corpus, fail closed.
+    """Bind generated 0.5.0 configs to a preregistered corpus, fail closed.
 
     The mapping must contain exactly the experiment ids declared by ``spec``.
     New corpus configs use explicit independent prompt and arrival seeds. Within
@@ -195,8 +195,8 @@ def validate_corpus_configs(
                 config = configs[experiment_id]
                 if config.experiment_id != experiment_id:
                     raise ValueError("config mapping key must equal config.experiment_id")
-                if config.schema_version != "0.4.0":
-                    raise ValueError("M2D corpus configs must use schema_version 0.4.0")
+                if config.schema_version != "0.5.0":
+                    raise ValueError("M2D corpus configs must use schema_version 0.5.0")
                 workload = config.workload
                 if workload.prompt_seed is None or workload.arrival_seed is None:
                     raise ValueError(

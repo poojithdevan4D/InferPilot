@@ -20,10 +20,9 @@ from ._base import SchemaModel
 class WorkloadSpec(SchemaModel):
     """A reproducible synthetic workload.
 
-    Lengths are expressed in tokens. ``request_rate_qps`` reserves the open-loop
-    arrival-rate contract; the current runner fails closed when it is populated
-    because the arrival distribution is not implemented yet. ``None`` selects
-    closed-loop execution with up to ``max_concurrency`` requests in flight.
+    Lengths are expressed in tokens. ``request_rate_qps`` selects a deterministic
+    open-loop schedule; ``None`` selects closed-loop execution with up to
+    ``max_concurrency`` requests in flight.
     """
 
     name: str = Field(description="Human-readable workload label, e.g. 'chat-short'.")

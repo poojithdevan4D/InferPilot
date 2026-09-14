@@ -32,8 +32,8 @@ SCHEMA_VERSION = "0.5.0"
 #          legacy `seed`, exactly reproducing 0.3.0 behavior. 0.3.0 is still read
 #          and MUST NOT set the split seeds. 0.3.0 fingerprints are preserved:
 #          the split-seed keys are stripped from the identity payload when None.
-# 0.3.0 remains supported for read; 0.1.0 and 0.2.0 are refused loudly.
 #   0.5.0: explicit open-loop arrival_pattern and batched-Poisson burst_size.
+# 0.3.0/0.4.0 remain supported for read; 0.1.0/0.2.0 are refused loudly.
 SUPPORTED_SCHEMA_VERSIONS: frozenset[str] = frozenset({"0.3.0", "0.4.0", "0.5.0"})
 
 

@@ -118,3 +118,15 @@ def test_diff_prompt_same_arrival_seed_is_significant_even_cross_block() -> None
     assert exact_fingerprint(a) != exact_fingerprint(b)
     # prompt content must stay fixed within a study's blocks -> still significant.
     assert cross_block_fingerprint(a, ["max_num_seqs"]) != cross_block_fingerprint(b, ["max_num_seqs"])
+
+
+def test_burst_pattern_is_compatibility_significant() -> None:
+    plain = _result(_wl(prompt_seed=1, arrival_seed=9), schema="0.5.0", experiment_id="p")
+    burst = _result(
+        _wl(prompt_seed=1, arrival_seed=9, arrival_pattern="batched-poisson-v1", burst_size=4),
+        schema="0.5.0", experiment_id="b",
+    )
+    assert exact_fingerprint(plain) != exact_fingerprint(burst)
+    assert comparison_fingerprint(plain, ["max_num_seqs"]) != comparison_fingerprint(
+        burst, ["max_num_seqs"]
+    )

@@ -329,11 +329,12 @@ Pinned runtime decisions (see `inferpilot/runner/defaults.py`):
 
 ### Schema version
 
-The current schema is **`0.4.0`**; **`0.3.0` is still read-supported**
-(`SUPPORTED_SCHEMA_VERSIONS = {0.3.0, 0.4.0}`). Version history: `0.2.0` added split CUDA
+The current schema is **`0.5.0`**; **`0.3.0` and `0.4.0` are still read-supported**
+(`SUPPORTED_SCHEMA_VERSIONS = {0.3.0, 0.4.0, 0.5.0}`). Version history: `0.2.0` added split CUDA
 provenance and the sampler backend; `0.3.0` added resolved-configuration evidence and
 measured-window resource telemetry; **`0.4.0`** adds optional `WorkloadSpec.prompt_seed` and
-`arrival_seed` (see below). Unknown versions (`0.1.0`, `0.2.0`, anything else) fail loudly.
+`arrival_seed`; **`0.5.0`** adds an explicit arrival pattern and bounded batched-Poisson bursts.
+Unknown versions (`0.1.0`, `0.2.0`, anything else) fail loudly.
 
 **Prompt/arrival seed separation (0.4.0).** Prompt-generation randomness and arrival-schedule
 randomness can now be seeded independently:
@@ -357,11 +358,11 @@ Resolved for Milestone 1: **model**, **vLLM version**, and the **characterizatio
 shape** (table above). Still open:
 
 - **Workload shape (beyond characterization)** — realistic distributions (variable lengths,
-  chat vs. batch, real traces) are not implemented. Arrivals now support **closed-loop**
-  (`request_rate_qps=None`, bounded by `max_concurrency`) and **open-loop `poisson-v1`**
-  (`request_rate_qps>0`), described below.
+  chat vs. batch and real traces) are not implemented. Arrivals support **closed-loop**
+  (`request_rate_qps=None`, bounded by `max_concurrency`) and open-loop `poisson-v1` or
+  `batched-poisson-v1` (`request_rate_qps>0`), described below.
 
-### Open-loop arrivals (`poisson-v1`)
+### Open-loop arrivals (`poisson-v1` and `batched-poisson-v1`)
 
 When `WorkloadSpec.request_rate_qps > 0`, measured requests are dispatched on a seeded Poisson
 schedule instead of the closed-loop semaphore:
@@ -373,15 +374,22 @@ schedule instead of the closed-loop semaphore:
   The effective arrival seed is `arrival_seed` if set, else the legacy `seed`.
 - The schedule is fully determined by `(num_requests, request_rate_qps, effective_arrival_seed)`
   — identical inputs give identical schedules; different seeds give different ones.
+- With `arrival_pattern="batched-poisson-v1"`, `burst_size >= 2` requests share each batch
+  offset. Batch starts use exponential inter-arrivals with mean
+  `burst_size/request_rate_qps`; the final batch is truncated to exactly `num_requests`.
+  Thus `request_rate_qps` is the long-run request rate rather than the batch rate, and the
+  schedule is determined by `(num_requests, request_rate_qps, effective_arrival_seed,
+  burst_size)`. Legacy schemas accept only `poisson-v1`.
 - **Arrivals are independent of completion**: every request is scheduled up front and fires at
   its offset regardless of whether earlier requests have finished (no semaphore, no
   back-pressure). Warm-ups run sequentially and finish *before* the arrival clock and telemetry
   window start. Benchmark `duration_s` spans the arrival origin to the final completion.
-- Generated and actual dispatch offsets are stored in an immutable `arrivals.json` diagnostic
-  artifact (the result schema `0.3.0` is unchanged).
+- Generated and actual dispatch offsets, algorithm, seed, and burst size are stored in an
+  immutable `arrivals.json` diagnostic artifact.
 - **Limitations:** this is a bounded MVP — the full schedule is materialized up front and all
   requests may become in-flight at once; it does not throttle to a sustainable rate, cap
-  in-flight requests, or drop/delay arrivals. Use only for small, bounded measured workloads.
+  in-flight requests, or drop/delay arrivals. Batched Poisson is a synthetic burst model, not
+  a production-traffic trace or evidence of queue stability. Use only for small bounded studies.
 - **SLO** — concrete latency/throughput *targets* are still undecided and characterization runs
   set `slo: null`. SLO **evaluation** itself exists: a `StudySpec` (single-schedule) or
   `BlockedStudySpec` (multi-seed, robust-feasible) applies an explicit SLO conservatively over
