@@ -30,9 +30,14 @@ class PolicyBenchmarkSpec(SchemaModel):
 class PolicyScore(SchemaModel):
  policy_name:str; evaluations:int; slo_success_rate:float; oracle_hit_rate:float; mean_simple_regret_ms:float|None
 class PolicyBenchmarkReport(SchemaModel):
- report_version:Literal["0.1.0"]="0.1.0"; spec:PolicyBenchmarkSpec; scores:list[PolicyScore]
+ report_version:Literal["0.1.1"]="0.1.1"; spec:PolicyBenchmarkSpec; sources:dict[str,BlockedStudyReport]; scores:list[PolicyScore]
  interpretation:str="One-shot held-out policy scoring; no significance, production, or deployment-safety claim."
-def evaluate_policy_benchmark(spec:PolicyBenchmarkSpec,reports:dict[str,BlockedStudyReport])->PolicyBenchmarkReport:
+ @model_validator(mode="after")
+ def check(self):
+  expected=_scores(self.spec,self.sources)
+  if self.scores!=expected:raise ValueError("policy scores are inconsistent with embedded sources")
+  return self
+def _scores(spec:PolicyBenchmarkSpec,reports:dict[str,BlockedStudyReport])->list[PolicyScore]:
  if set(reports)!=set(spec.task_ids):raise ValueError("reports must exactly match benchmark tasks")
  scores=[]
  for policy in spec.policies:
@@ -48,4 +53,6 @@ def evaluate_policy_benchmark(spec:PolicyBenchmarkSpec,reports:dict[str,BlockedS
     outcomes.append((candidate.robust_feasible,hit,regret))
   regrets=[x[2] for x in outcomes if x[2] is not None]
   scores.append(PolicyScore(policy_name=policy.name,evaluations=len(outcomes),slo_success_rate=sum(x[0] for x in outcomes)/len(outcomes),oracle_hit_rate=sum(x[1] for x in outcomes)/len(outcomes),mean_simple_regret_ms=sum(regrets)/len(regrets) if regrets else None))
- return PolicyBenchmarkReport(spec=spec,scores=scores)
+ return scores
+def evaluate_policy_benchmark(spec:PolicyBenchmarkSpec,reports:dict[str,BlockedStudyReport])->PolicyBenchmarkReport:
+ return PolicyBenchmarkReport(spec=spec,sources=reports,scores=_scores(spec,reports))
