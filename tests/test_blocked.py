@@ -28,7 +28,7 @@ from inferpilot.comparison import (
 def _run(
     experiment_id: str, seed: int, seqs: int, *,
     ttft95: float, throughput: float, gpu_name: str = "GPU-A",
-    kv_dtype: str = "auto",
+    kv_dtype: str = "auto", arrival_seed: int | None = None,
 ) -> ExperimentResult:
     config = ExperimentConfig(
         experiment_id=experiment_id, name=experiment_id,
@@ -40,6 +40,7 @@ def _run(
         workload=WorkloadSpec(
             name="c6", num_requests=32, warmup_requests=4, prompt_tokens=128,
             output_tokens=32, max_concurrency=4, temperature=0, ignore_eos=True, seed=seed,
+            arrival_seed=arrival_seed,
         ),
     )
     environment = EnvironmentMetadata(
@@ -135,6 +136,33 @@ def test_report_roundtrips() -> None:
     report = evaluate_blocked_study(_block_cohorts(), _spec())
     assert BlockedStudyReport.model_validate_json(report.model_dump_json()) == report
     assert report.report_version == "0.1.1"
+
+
+def test_split_arrival_seed_defines_blocks_while_legacy_seed_stays_fixed() -> None:
+    cohorts = []
+    for block_seed in (10, 11, 12):
+        cohorts.append([
+            [("a", _run(
+                f"split-seq1-s{block_seed}", 0, 1, ttft95=30,
+                throughput=150, arrival_seed=block_seed,
+            ))],
+            [("b", _run(
+                f"split-seq2-s{block_seed}", 0, 2, ttft95=20,
+                throughput=240, arrival_seed=block_seed,
+            ))],
+        ])
+    spec = _spec(blocks=[
+        {
+            "seed": block_seed,
+            "experiment_ids": [
+                f"split-seq1-s{block_seed}", f"split-seq2-s{block_seed}",
+            ],
+        }
+        for block_seed in (10, 11, 12)
+    ])
+    report = evaluate_blocked_study(cohorts, spec)
+    assert report.status == "selected"
+    assert report.best_candidate_indices == [1]
 
 
 # --- negative --------------------------------------------------------------- #

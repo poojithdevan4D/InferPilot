@@ -81,12 +81,15 @@ def evaluate_blocked_study(
             raise ValueError(
                 f"block seed={block_spec.seed}: cohort ids/order must match the block spec"
             )
-        # Every candidate in the block must share the block's workload seed exactly.
+        # Every candidate in the block must share the effective arrival seed exactly.
+        # For legacy configs this property falls back to workload.seed, preserving
+        # the pre-split-seed behavior.
         for runs in cohorts:
-            seed = runs[0][1].config.workload.seed
+            seed = runs[0][1].config.workload.effective_arrival_seed
             if seed != block_spec.seed:
                 raise ValueError(
-                    f"block seed={block_spec.seed}: a candidate ran with workload seed {seed}"
+                    f"block seed={block_spec.seed}: a candidate ran with "
+                    f"effective arrival seed {seed}"
                 )
             for _, result in runs:
                 all_cross_fps.add(cross_block_fingerprint(result, fields))
