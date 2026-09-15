@@ -1,0 +1,45 @@
+{
+  "schema_version": "0.5.0",
+  "experiment_id": "m2d-held-decode-a50-seq4-tok512",
+  "name": "m2d-held-decode-a50-seq4-tok512",
+  "description": "Frozen M2D held-out evaluation cell; outcome must remain unopened until policy freeze.",
+  "engine": {
+    "model": "Qwen/Qwen2.5-0.5B-Instruct",
+    "revision": "7ae557604adf67be50417f59c2c2f167def9a775",
+    "dtype": "auto",
+    "max_model_len": 2048,
+    "max_num_seqs": 4,
+    "max_num_batched_tokens": 512,
+    "gpu_memory_utilization": 0.85,
+    "kv_cache_dtype": "auto",
+    "enable_prefix_caching": false,
+    "enable_chunked_prefill": true,
+    "sampler_backend": "pytorch",
+    "generation_config": "vllm",
+    "extra_args": {}
+  },
+  "workload": {
+    "name": "m2d-bind-decode",
+    "num_requests": 128,
+    "warmup_requests": 4,
+    "prompt_tokens": 64,
+    "output_tokens": 256,
+    "request_rate_qps": 1.0,
+    "arrival_pattern": "poisson-v1",
+    "burst_size": null,
+    "max_concurrency": null,
+    "temperature": 0.0,
+    "ignore_eos": true,
+    "seed": 0,
+    "prompt_seed": 2002,
+    "arrival_seed": 50
+  },
+  "slo": null,
+  "seed": 0,
+  "tags": [
+    "m2d",
+    "heldout",
+    "sealed",
+    "decode"
+  ]
+}

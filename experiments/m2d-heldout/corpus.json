@@ -1,0 +1,355 @@
+{
+  "spec_version": "0.1.0",
+  "corpus_id": "m2d-binding-grid-v1",
+  "varied_engine_fields": [
+    "max_num_seqs",
+    "max_num_batched_tokens"
+  ],
+  "candidates": [
+    {
+      "candidate_id": "s1t512",
+      "engine_values": {
+        "max_num_seqs": 1,
+        "max_num_batched_tokens": 512
+      }
+    },
+    {
+      "candidate_id": "s1t2048",
+      "engine_values": {
+        "max_num_seqs": 1,
+        "max_num_batched_tokens": 2048
+      }
+    },
+    {
+      "candidate_id": "s4t512",
+      "engine_values": {
+        "max_num_seqs": 4,
+        "max_num_batched_tokens": 512
+      }
+    },
+    {
+      "candidate_id": "s4t2048",
+      "engine_values": {
+        "max_num_seqs": 4,
+        "max_num_batched_tokens": 2048
+      }
+    }
+  ],
+  "tasks": [
+    {
+      "task_id": "prefill-development",
+      "shape_id": "prefill",
+      "partition": "development",
+      "study": {
+        "spec_version": "0.1.0",
+        "study_id": "m2d-prefill-development",
+        "objective": "tpot_p95_ms",
+        "slo": {
+          "ttft_p95_ms": 400.0,
+          "tpot_p95_ms": 20.0,
+          "e2e_p95_ms": null,
+          "min_throughput_tokens_per_s": null
+        },
+        "varied_engine_fields": [
+          "max_num_seqs",
+          "max_num_batched_tokens"
+        ],
+        "blocks": [
+          {
+            "seed": 20,
+            "experiment_ids": [
+              "m2d-bind-prefill-a20-seq1-tok512",
+              "m2d-bind-prefill-a20-seq1-tok2048",
+              "m2d-bind-prefill-a20-seq4-tok512",
+              "m2d-bind-prefill-a20-seq4-tok2048"
+            ]
+          },
+          {
+            "seed": 21,
+            "experiment_ids": [
+              "m2d-bind-prefill-a21-seq1-tok512",
+              "m2d-bind-prefill-a21-seq1-tok2048",
+              "m2d-bind-prefill-a21-seq4-tok512",
+              "m2d-bind-prefill-a21-seq4-tok2048"
+            ]
+          },
+          {
+            "seed": 22,
+            "experiment_ids": [
+              "m2d-bind-prefill-a22-seq1-tok512",
+              "m2d-bind-prefill-a22-seq1-tok2048",
+              "m2d-bind-prefill-a22-seq4-tok512",
+              "m2d-bind-prefill-a22-seq4-tok2048"
+            ]
+          }
+        ],
+        "min_runs": 1
+      }
+    },
+    {
+      "task_id": "prefill-heldout",
+      "shape_id": "prefill",
+      "partition": "heldout",
+      "study": {
+        "spec_version": "0.1.0",
+        "study_id": "m2d-prefill-heldout",
+        "objective": "tpot_p95_ms",
+        "slo": {
+          "ttft_p95_ms": 400.0,
+          "tpot_p95_ms": 20.0,
+          "e2e_p95_ms": null,
+          "min_throughput_tokens_per_s": null
+        },
+        "varied_engine_fields": [
+          "max_num_seqs",
+          "max_num_batched_tokens"
+        ],
+        "blocks": [
+          {
+            "seed": 50,
+            "experiment_ids": [
+              "m2d-held-prefill-a50-seq1-tok512",
+              "m2d-held-prefill-a50-seq1-tok2048",
+              "m2d-held-prefill-a50-seq4-tok512",
+              "m2d-held-prefill-a50-seq4-tok2048"
+            ]
+          },
+          {
+            "seed": 51,
+            "experiment_ids": [
+              "m2d-held-prefill-a51-seq1-tok512",
+              "m2d-held-prefill-a51-seq1-tok2048",
+              "m2d-held-prefill-a51-seq4-tok512",
+              "m2d-held-prefill-a51-seq4-tok2048"
+            ]
+          },
+          {
+            "seed": 52,
+            "experiment_ids": [
+              "m2d-held-prefill-a52-seq1-tok512",
+              "m2d-held-prefill-a52-seq1-tok2048",
+              "m2d-held-prefill-a52-seq4-tok512",
+              "m2d-held-prefill-a52-seq4-tok2048"
+            ]
+          }
+        ],
+        "min_runs": 1
+      }
+    },
+    {
+      "task_id": "decode-development",
+      "shape_id": "decode",
+      "partition": "development",
+      "study": {
+        "spec_version": "0.1.0",
+        "study_id": "m2d-decode-development",
+        "objective": "tpot_p95_ms",
+        "slo": {
+          "ttft_p95_ms": 1500.0,
+          "tpot_p95_ms": 8.0,
+          "e2e_p95_ms": null,
+          "min_throughput_tokens_per_s": null
+        },
+        "varied_engine_fields": [
+          "max_num_seqs",
+          "max_num_batched_tokens"
+        ],
+        "blocks": [
+          {
+            "seed": 30,
+            "experiment_ids": [
+              "m2d-bind-decode-a30-seq1-tok512",
+              "m2d-bind-decode-a30-seq1-tok2048",
+              "m2d-bind-decode-a30-seq4-tok512",
+              "m2d-bind-decode-a30-seq4-tok2048"
+            ]
+          },
+          {
+            "seed": 31,
+            "experiment_ids": [
+              "m2d-bind-decode-a31-seq1-tok512",
+              "m2d-bind-decode-a31-seq1-tok2048",
+              "m2d-bind-decode-a31-seq4-tok512",
+              "m2d-bind-decode-a31-seq4-tok2048"
+            ]
+          },
+          {
+            "seed": 32,
+            "experiment_ids": [
+              "m2d-bind-decode-a32-seq1-tok512",
+              "m2d-bind-decode-a32-seq1-tok2048",
+              "m2d-bind-decode-a32-seq4-tok512",
+              "m2d-bind-decode-a32-seq4-tok2048"
+            ]
+          }
+        ],
+        "min_runs": 1
+      }
+    },
+    {
+      "task_id": "decode-heldout",
+      "shape_id": "decode",
+      "partition": "heldout",
+      "study": {
+        "spec_version": "0.1.0",
+        "study_id": "m2d-decode-heldout",
+        "objective": "tpot_p95_ms",
+        "slo": {
+          "ttft_p95_ms": 1500.0,
+          "tpot_p95_ms": 8.0,
+          "e2e_p95_ms": null,
+          "min_throughput_tokens_per_s": null
+        },
+        "varied_engine_fields": [
+          "max_num_seqs",
+          "max_num_batched_tokens"
+        ],
+        "blocks": [
+          {
+            "seed": 50,
+            "experiment_ids": [
+              "m2d-held-decode-a50-seq1-tok512",
+              "m2d-held-decode-a50-seq1-tok2048",
+              "m2d-held-decode-a50-seq4-tok512",
+              "m2d-held-decode-a50-seq4-tok2048"
+            ]
+          },
+          {
+            "seed": 51,
+            "experiment_ids": [
+              "m2d-held-decode-a51-seq1-tok512",
+              "m2d-held-decode-a51-seq1-tok2048",
+              "m2d-held-decode-a51-seq4-tok512",
+              "m2d-held-decode-a51-seq4-tok2048"
+            ]
+          },
+          {
+            "seed": 52,
+            "experiment_ids": [
+              "m2d-held-decode-a52-seq1-tok512",
+              "m2d-held-decode-a52-seq1-tok2048",
+              "m2d-held-decode-a52-seq4-tok512",
+              "m2d-held-decode-a52-seq4-tok2048"
+            ]
+          }
+        ],
+        "min_runs": 1
+      }
+    },
+    {
+      "task_id": "burst-development",
+      "shape_id": "burst",
+      "partition": "development",
+      "study": {
+        "spec_version": "0.1.0",
+        "study_id": "m2d-burst-development",
+        "objective": "tpot_p95_ms",
+        "slo": {
+          "ttft_p95_ms": 1500.0,
+          "tpot_p95_ms": 8.5,
+          "e2e_p95_ms": null,
+          "min_throughput_tokens_per_s": null
+        },
+        "varied_engine_fields": [
+          "max_num_seqs",
+          "max_num_batched_tokens"
+        ],
+        "blocks": [
+          {
+            "seed": 30,
+            "experiment_ids": [
+              "m2d-bind-burst-a30-seq1-tok512",
+              "m2d-bind-burst-a30-seq1-tok2048",
+              "m2d-bind-burst-a30-seq4-tok512",
+              "m2d-bind-burst-a30-seq4-tok2048"
+            ]
+          },
+          {
+            "seed": 32,
+            "experiment_ids": [
+              "m2d-bind-burst-a32-seq1-tok512",
+              "m2d-bind-burst-a32-seq1-tok2048",
+              "m2d-bind-burst-a32-seq4-tok512",
+              "m2d-bind-burst-a32-seq4-tok2048"
+            ]
+          },
+          {
+            "seed": 33,
+            "experiment_ids": [
+              "m2d-bind-burst-a33-seq1-tok512",
+              "m2d-bind-burst-a33-seq1-tok2048",
+              "m2d-bind-burst-a33-seq4-tok512",
+              "m2d-bind-burst-a33-seq4-tok2048"
+            ]
+          }
+        ],
+        "min_runs": 1
+      }
+    },
+    {
+      "task_id": "burst-heldout",
+      "shape_id": "burst",
+      "partition": "heldout",
+      "study": {
+        "spec_version": "0.1.0",
+        "study_id": "m2d-burst-heldout",
+        "objective": "tpot_p95_ms",
+        "slo": {
+          "ttft_p95_ms": 1500.0,
+          "tpot_p95_ms": 8.5,
+          "e2e_p95_ms": null,
+          "min_throughput_tokens_per_s": null
+        },
+        "varied_engine_fields": [
+          "max_num_seqs",
+          "max_num_batched_tokens"
+        ],
+        "blocks": [
+          {
+            "seed": 50,
+            "experiment_ids": [
+              "m2d-held-burst-a50-seq1-tok512",
+              "m2d-held-burst-a50-seq1-tok2048",
+              "m2d-held-burst-a50-seq4-tok512",
+              "m2d-held-burst-a50-seq4-tok2048"
+            ]
+          },
+          {
+            "seed": 51,
+            "experiment_ids": [
+              "m2d-held-burst-a51-seq1-tok512",
+              "m2d-held-burst-a51-seq1-tok2048",
+              "m2d-held-burst-a51-seq4-tok512",
+              "m2d-held-burst-a51-seq4-tok2048"
+            ]
+          },
+          {
+            "seed": 52,
+            "experiment_ids": [
+              "m2d-held-burst-a52-seq1-tok512",
+              "m2d-held-burst-a52-seq1-tok2048",
+              "m2d-held-burst-a52-seq4-tok512",
+              "m2d-held-burst-a52-seq4-tok2048"
+            ]
+          }
+        ],
+        "min_runs": 1
+      }
+    }
+  ],
+  "candidate_budgets": [
+    1,
+    2,
+    4
+  ],
+  "cost_budget_s": null,
+  "hypotheses": [
+    "A workload-aware policy outperforms a single static candidate under equal budgets",
+    "The binding token budget matters most for prefill-heavy traffic",
+    "No-feasible and budget-exhausted remain distinct outcomes"
+  ],
+  "failure_policy": "fail_closed",
+  "budget_exhaustion_policy": "unknown_not_infeasible",
+  "heldout_policy": "freeze_policy_before_opening_heldout_outcomes",
+  "interpretation": "Development outcomes may inform a frozen policy. Held-out outcomes may only score that frozen policy. This corpus measures performance on its declared tasks; it is not a statistical, deployment-safety, or hardware-generalization guarantee."
+}
