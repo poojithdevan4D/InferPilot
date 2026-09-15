@@ -1,5 +1,13 @@
 from __future__ import annotations
+import hashlib
+from pathlib import Path
+from inferpilot.search.policy_benchmark import PolicyBenchmarkReport
 from .models import AdvisorDecision,AdvisorPolicy,AdvisorRequest
+def load_verified_policy(policy_path:Path,evidence_path:Path)->AdvisorPolicy:
+ policy=AdvisorPolicy.model_validate_json(policy_path.read_text());payload=evidence_path.read_bytes()
+ if hashlib.sha256(payload).hexdigest()!=policy.evidence_report_sha256:raise ValueError("evidence report digest mismatch")
+ PolicyBenchmarkReport.model_validate_json(payload)
+ return policy
 def _derive(policy,request):
  reasons=[]
  for field in ("model","revision","gpu_name","prompt_tokens","output_tokens","arrival_pattern"):
