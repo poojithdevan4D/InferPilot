@@ -1,0 +1,45 @@
+{
+  "schema_version": "0.5.0",
+  "experiment_id": "m3-dev-qps6-a62-seq4",
+  "name": "m3-dev-qps6-a62-seq4",
+  "description": "Preregistered M3 development cell for locating a workload-rate scheduler-width crossover; not held-out evidence.",
+  "engine": {
+    "model": "Qwen/Qwen2.5-0.5B-Instruct",
+    "revision": "7ae557604adf67be50417f59c2c2f167def9a775",
+    "dtype": "auto",
+    "max_model_len": 2048,
+    "max_num_seqs": 4,
+    "max_num_batched_tokens": 512,
+    "gpu_memory_utilization": 0.85,
+    "kv_cache_dtype": "auto",
+    "enable_prefix_caching": false,
+    "enable_chunked_prefill": true,
+    "sampler_backend": "pytorch",
+    "generation_config": "vllm",
+    "extra_args": {}
+  },
+  "workload": {
+    "name": "m3-crossover-qps6",
+    "num_requests": 256,
+    "warmup_requests": 4,
+    "prompt_tokens": 128,
+    "output_tokens": 32,
+    "request_rate_qps": 6.0,
+    "arrival_pattern": "poisson-v1",
+    "burst_size": null,
+    "max_concurrency": null,
+    "temperature": 0.0,
+    "ignore_eos": true,
+    "seed": 0,
+    "prompt_seed": 3001,
+    "arrival_seed": 62
+  },
+  "slo": null,
+  "seed": 0,
+  "tags": [
+    "m3",
+    "development",
+    "crossover",
+    "poisson-v1"
+  ]
+}
