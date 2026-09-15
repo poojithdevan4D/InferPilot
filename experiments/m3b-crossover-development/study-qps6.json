@@ -1,0 +1,44 @@
+{
+  "spec_version": "0.1.0",
+  "study_id": "m3b-dev-qps6",
+  "objective": "tpot_p95_ms",
+  "slo": {
+    "ttft_p95_ms": 250.0,
+    "tpot_p95_ms": 8.5,
+    "e2e_p95_ms": null,
+    "min_throughput_tokens_per_s": null
+  },
+  "varied_engine_fields": [
+    "max_num_seqs"
+  ],
+  "blocks": [
+    {
+      "seed": 63,
+      "experiment_ids": [
+        "m3b-dev-qps6-a63-seq1",
+        "m3b-dev-qps6-a63-seq2",
+        "m3b-dev-qps6-a63-seq3",
+        "m3b-dev-qps6-a63-seq4"
+      ]
+    },
+    {
+      "seed": 64,
+      "experiment_ids": [
+        "m3b-dev-qps6-a64-seq1",
+        "m3b-dev-qps6-a64-seq2",
+        "m3b-dev-qps6-a64-seq3",
+        "m3b-dev-qps6-a64-seq4"
+      ]
+    },
+    {
+      "seed": 65,
+      "experiment_ids": [
+        "m3b-dev-qps6-a65-seq1",
+        "m3b-dev-qps6-a65-seq2",
+        "m3b-dev-qps6-a65-seq3",
+        "m3b-dev-qps6-a65-seq4"
+      ]
+    }
+  ],
+  "min_runs": 1
+}
