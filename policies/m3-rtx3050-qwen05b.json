@@ -1,0 +1,19 @@
+{
+  "policy_version": "0.1.0",
+  "policy_id": "m3-rtx3050-qwen05b-v1",
+  "model": "Qwen/Qwen2.5-0.5B-Instruct",
+  "revision": "7ae557604adf67be50417f59c2c2f167def9a775",
+  "gpu_name": "NVIDIA GeForce RTX 3050 Laptop GPU",
+  "prompt_tokens": 128,
+  "output_tokens": 32,
+  "arrival_pattern": "poisson-v1",
+  "fixed_engine_fields": {
+    "max_num_batched_tokens": 512,
+    "enable_chunked_prefill": true
+  },
+  "regimes": [
+    {"request_rate_qps": 2.0, "engine_overrides": {"max_num_seqs": 2}},
+    {"request_rate_qps": 6.0, "engine_overrides": {"max_num_seqs": 4}}
+  ],
+  "evidence_report_sha256": "118684289f9a81c650d15dc3b1583e06c5d02007e43d7abcc772689f60d791c9"
+}
