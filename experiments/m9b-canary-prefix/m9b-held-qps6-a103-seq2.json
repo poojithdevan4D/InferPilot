@@ -1,0 +1,46 @@
+{
+  "schema_version": "0.5.0",
+  "experiment_id": "m9b-held-qps6-a103-seq2",
+  "name": "m9b-held-qps6-a103-seq2",
+  "description": "Sealed M9b replacement cell; M9 design unchanged after pre-measurement environment failure.",
+  "engine": {
+    "model": "Qwen/Qwen2.5-0.5B-Instruct",
+    "revision": "7ae557604adf67be50417f59c2c2f167def9a775",
+    "dtype": "auto",
+    "max_model_len": 2048,
+    "max_num_seqs": 2,
+    "max_num_batched_tokens": 512,
+    "gpu_memory_utilization": 0.85,
+    "kv_cache_dtype": "auto",
+    "enable_prefix_caching": false,
+    "enable_chunked_prefill": true,
+    "sampler_backend": "pytorch",
+    "generation_config": "vllm",
+    "extra_args": {}
+  },
+  "workload": {
+    "name": "m9b-held-qps6",
+    "num_requests": 256,
+    "warmup_requests": 4,
+    "prompt_tokens": 128,
+    "output_tokens": 32,
+    "request_rate_qps": 6.0,
+    "arrival_pattern": "poisson-v1",
+    "burst_size": null,
+    "max_concurrency": null,
+    "temperature": 0.0,
+    "ignore_eos": true,
+    "seed": 0,
+    "prompt_seed": 7003,
+    "arrival_seed": 103
+  },
+  "slo": null,
+  "seed": 0,
+  "tags": [
+    "m9b",
+    "heldout",
+    "sealed",
+    "confirmatory",
+    "canary-prefix"
+  ]
+}
