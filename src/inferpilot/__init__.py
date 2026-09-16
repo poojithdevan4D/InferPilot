@@ -17,6 +17,11 @@ from .config import EngineConfig, ExperimentConfig, SamplerBackend, SLO
 from .effective import EffectiveConfig
 from .environment import EnvironmentMetadata, HardwareInfo, ToolchainInfo
 from .phases import PhaseEvent, PhaseSpan, RunnerPhaseTiming
+from .workload_profile import (
+    WorkloadObservation,
+    WorkloadProfile,
+    build_workload_profile,
+)
 from .telemetry import ResourceSample, ResourceTelemetry
 from .measurements import RequestMeasurement
 from .results import AggregateMetrics, ExperimentResult
@@ -44,6 +49,9 @@ __all__ = [
     "PhaseEvent",
     "PhaseSpan",
     "RunnerPhaseTiming",
+    "WorkloadObservation",
+    "WorkloadProfile",
+    "build_workload_profile",
     "RequestMeasurement",
     "AggregateMetrics",
     "ExperimentResult",
