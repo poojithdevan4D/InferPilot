@@ -53,3 +53,15 @@ The current policy is validated **only** for the pinned `Qwen/Qwen2.5-0.5B-Instr
 abstains. Endpoint evidence demonstrates SLO feasibility of the frozen action, not optimality at every
 interior rate. This is
 **not** a production autoscaler and provides **no deployment-safety guarantee**.
+
+## Controller boundary (M7)
+
+`inferpilot.advisor.controller` adds a pure state machine for consuming profile decisions. By default,
+three consecutive windows must agree before it emits `test_candidate`; the current configuration does
+not change until an explicit passing canary result produces `apply_candidate`. Failure produces
+`rollback`, and both outcomes start a declared cooldown. Complete event/transition replays recompute
+themselves on load and reject tampering.
+
+This is an offline control contract, not a live vLLM integration. Window length, canary measurement,
+restart orchestration, and production rollback remain external and unvalidated. See
+`docs/architecture/m7-controller-boundary.md`.

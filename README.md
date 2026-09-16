@@ -317,6 +317,11 @@ tamper-evident. The current policy is validated **only** for the pinned Qwen2.5-
 3050 Laptop GPU, fixed 128/32-token `poisson-v1` workloads, and the 1.5–2.5 / 5.5–6.5 QPS bands; it is **not**
 a production autoscaler or a deployment-safety guarantee. See `docs/advisor.md`.
 
+M7 adds a deterministic, replayable controller boundary around these decisions. Repeated agreement
+may emit `test_candidate`, but only an explicit canary outcome can emit `apply_candidate` or
+`rollback`; the library still performs no live server mutation. See
+`docs/architecture/m7-controller-boundary.md`.
+
 ### First controlled scheduling experiment
 
 `examples/experiment_c4_seq1.json` through `experiment_c4_seq4.json` hold workload, model,

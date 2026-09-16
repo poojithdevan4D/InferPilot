@@ -185,6 +185,12 @@ not to claim superior search.
 Implement explicit controller actions, restart/change cost, canary acceptance,
 and rollback. Compare a feature heuristic and TPE before adding LLM proposals.
 
+The M7 controller boundary implements the first, deliberately offline part of this
+step: evidence-bound decisions require repeated agreement before an isolated
+`test_candidate`, and only an explicit canary outcome can produce
+`apply_candidate` or `rollback`. Its complete transition replay is self-validating.
+It does not yet execute restarts, define canary metrics, or claim online adaptation.
+
 ## Stop conditions and anti-claims
 
 - If a simple conventional method matches or beats an LLM policy at the same
