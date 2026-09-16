@@ -1,10 +1,10 @@
 """Bind a passive WorkloadProfile to the evidence-bound advisor (M5 phase 4).
 
 This adapter only constructs an :class:`AdvisorRequest` when the profile and
-caller-supplied context provide EVERY exact field the policy requires. It never
-rounds, buckets, interpolates, extrapolates, or maps a measured rate to a policy
-regime: the observed realized rate must exactly match a validated regime or the
-adapter abstains with the advisor's existing unsupported-rate reason. Prompt and
+caller-supplied context provide every field the policy requires. It never rounds,
+maps to a nearest regime, bridges an unvalidated gap, or extrapolates: the observed
+realized rate must satisfy the policy's evidence boundary or the adapter abstains
+with the advisor's existing unsupported-rate reason. Prompt and
 output token summaries are never treated as fixed request lengths unless the
 caller declares a fixed-length workload AND every observation matches. The
 resulting decision is bound to the profile's provenance digest.
@@ -92,7 +92,7 @@ def _decision_fields(policy: AdvisorPolicy, profile: WorkloadProfile, context: P
 def advise_from_profile(
     policy: AdvisorPolicy, profile: WorkloadProfile, context: ProfileContext
 ) -> ProfileAdvisorDecision:
-    """Recommend only for an exact, evidence-supported fixed-length profile; else abstain."""
+    """Recommend only for an evidence-supported fixed-length profile; else abstain."""
     status, overrides, reasons, decision = _decision_fields(policy, profile, context)
     return ProfileAdvisorDecision(
         policy=policy, profile=profile, profile_provenance_sha256=profile.provenance_sha256,

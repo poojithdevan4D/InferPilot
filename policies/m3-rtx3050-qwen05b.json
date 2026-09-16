@@ -1,5 +1,5 @@
 {
-  "policy_version": "0.1.0",
+  "policy_version": "0.2.0",
   "policy_id": "m3-rtx3050-qwen05b-v1",
   "model": "Qwen/Qwen2.5-0.5B-Instruct",
   "revision": "7ae557604adf67be50417f59c2c2f167def9a775",
@@ -12,8 +12,9 @@
     "enable_chunked_prefill": true
   },
   "regimes": [
-    {"request_rate_qps": 2.0, "engine_overrides": {"max_num_seqs": 2}},
-    {"request_rate_qps": 6.0, "engine_overrides": {"max_num_seqs": 4}}
+    {"request_rate_qps": 2.0, "min_rate_qps": 1.5, "max_rate_qps": 2.5, "engine_overrides": {"max_num_seqs": 2}},
+    {"request_rate_qps": 6.0, "min_rate_qps": 5.5, "max_rate_qps": 6.5, "engine_overrides": {"max_num_seqs": 4}}
   ],
-  "evidence_report_sha256": "118684289f9a81c650d15dc3b1583e06c5d02007e43d7abcc772689f60d791c9"
+  "evidence_report_sha256": "118684289f9a81c650d15dc3b1583e06c5d02007e43d7abcc772689f60d791c9",
+  "applicability_report_sha256": "f29cd3b5cd5c34e6adfe1664f48f2895acc01c7de9172c16983bfc52208bc93f"
 }

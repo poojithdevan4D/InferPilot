@@ -1,0 +1,44 @@
+{
+  "report_version": "0.1.0",
+  "policy_id": "m3-rtx3050-qwen05b-v1",
+  "model": "Qwen/Qwen2.5-0.5B-Instruct",
+  "revision": "7ae557604adf67be50417f59c2c2f167def9a775",
+  "gpu_name": "NVIDIA GeForce RTX 3050 Laptop GPU",
+  "prompt_tokens": 128,
+  "output_tokens": 32,
+  "arrival_pattern": "poisson-v1",
+  "fixed_engine_fields": {
+    "max_num_batched_tokens": 512,
+    "enable_chunked_prefill": true
+  },
+  "ttft_p95_limit_ms": 250.0,
+  "tpot_p95_limit_ms": 8.5,
+  "bands": [
+    {
+      "min_rate_qps": 1.5,
+      "max_rate_qps": 2.5,
+      "max_num_seqs": 2,
+      "cells": [
+        {"run_id":"8afaec9ed61d95c5bd0d9554c48dcce1ef9c96ce53f056f039f79fb4b7625769","request_rate_qps":1.5,"arrival_seed":93,"max_num_seqs":2,"ttft_p95_ms":39.81477824709145,"tpot_p95_ms":7.171019886886972},
+        {"run_id":"1da58150d42dabead5b4773f9de29d74aeb37c93d13c606c7851ed28b1da5038","request_rate_qps":1.5,"arrival_seed":94,"max_num_seqs":2,"ttft_p95_ms":33.28367500580498,"tpot_p95_ms":7.089187782243712},
+        {"run_id":"5565dcdca72d28738e200def2ce5706f74a2afbdc2a59440835d3e6c699b251d","request_rate_qps":1.5,"arrival_seed":95,"max_num_seqs":2,"ttft_p95_ms":64.47477625260944,"tpot_p95_ms":7.15027496769307},
+        {"run_id":"6d7c84e7f4df7b9ab64b406f7b745df9c3e3ce9e27e9fd42cb61044e6ce2fcf0","request_rate_qps":2.5,"arrival_seed":93,"max_num_seqs":2,"ttft_p95_ms":154.21434249947197,"tpot_p95_ms":7.168754515840837},
+        {"run_id":"10690ee8569fde68df67e70bbb48775f47bdcd3a4a2f71b127203fe81fb9827f","request_rate_qps":2.5,"arrival_seed":94,"max_num_seqs":2,"ttft_p95_ms":86.93447649420705,"tpot_p95_ms":7.151303572637487},
+        {"run_id":"0abeed54c65a581450c19e0e2b3c5a085728e173a60872493142ddff1909e2b7","request_rate_qps":2.5,"arrival_seed":95,"max_num_seqs":2,"ttft_p95_ms":151.1592147508054,"tpot_p95_ms":7.174465556383966}
+      ]
+    },
+    {
+      "min_rate_qps": 5.5,
+      "max_rate_qps": 6.5,
+      "max_num_seqs": 4,
+      "cells": [
+        {"run_id":"b1ddb350ae2b4bd85f0d4ec7eae42e032005f620cf00509b36cee1f43f36edbe","request_rate_qps":5.5,"arrival_seed":93,"max_num_seqs":4,"ttft_p95_ms":81.77505425555864,"tpot_p95_ms":7.885754871230962},
+        {"run_id":"4099fc7393b03c849f5c621e11b18f80441361c06b9093664b6aab13134e3754","request_rate_qps":5.5,"arrival_seed":94,"max_num_seqs":4,"ttft_p95_ms":42.78156799773569,"tpot_p95_ms":7.836632096680865},
+        {"run_id":"cc57d5959d8ee3d3736436f8f54f5395b3f4271457fc1a51f22179b18d879c6e","request_rate_qps":5.5,"arrival_seed":95,"max_num_seqs":4,"ttft_p95_ms":92.56592199744773,"tpot_p95_ms":7.890762000076187},
+        {"run_id":"a31b7dd94a2468afc135135740e4093391b58eb7577e69b9c5e0b52a60a4773f","request_rate_qps":6.5,"arrival_seed":93,"max_num_seqs":4,"ttft_p95_ms":123.42634850938339,"tpot_p95_ms":7.910796725956326},
+        {"run_id":"d873d5da3690788ff079a4753faed7d755b6f919040cc5f2514a3cc9bd8b8a04","request_rate_qps":6.5,"arrival_seed":94,"max_num_seqs":4,"ttft_p95_ms":46.002166247490095,"tpot_p95_ms":7.902221862980608},
+        {"run_id":"ddc8ea0d2c78cdbd08be673e1a85d04e6a3cc10cb5216a7dbb4462b0c8cd2505","request_rate_qps":6.5,"arrival_seed":95,"max_num_seqs":4,"ttft_p95_ms":134.31477675476344,"tpot_p95_ms":7.926432749950289}
+      ]
+    }
+  ]
+}

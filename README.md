@@ -308,12 +308,13 @@ observations (JSON/JSONL) → python -m inferpilot.profiling obs.jsonl profile.j
 ```
 
 Profiling is **passive characterization, not workload classification** (no Poisson/burst labels).
-Only an exact, evidence-supported context is recommended: the observed realized rate must match a
-validated regime exactly (no rounding/bucketing/interpolation), and token summaries are treated as
+Only an evidence-supported context is recommended: policy v0.2 requires the observed realized rate
+to fall inside one of two independently confirmed closed intervals (with no rounding, nearest-regime
+mapping, gap filling, or extrapolation), and token summaries are treated as
 fixed request lengths only for an explicitly-declared fixed-length workload whose every observation
 matches — otherwise the advisor abstains. The decision binds to the profile's provenance digest and is
 tamper-evident. The current policy is validated **only** for the pinned Qwen2.5-0.5B revision, the RTX
-3050 Laptop GPU, fixed 128/32-token `poisson-v1` workloads, and the exact 2/6 QPS regimes; it is **not**
+3050 Laptop GPU, fixed 128/32-token `poisson-v1` workloads, and the 1.5–2.5 / 5.5–6.5 QPS bands; it is **not**
 a production autoscaler or a deployment-safety guarantee. See `docs/advisor.md`.
 
 ### First controlled scheduling experiment
