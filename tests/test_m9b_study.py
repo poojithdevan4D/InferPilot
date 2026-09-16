@@ -27,9 +27,15 @@ GEN = _load(M9B / "generate_configs.py", "m9b_gen")
 
 def test_preflight_blocks_wrong_environment() -> None:
     # Dev interpreter has no sibling vllm -> abort before any run/manifest record.
+    # (The real bench study legitimately populates runs/m9b-canary-prefix, so we assert
+    # the preflight writes NOTHING new rather than that the directory is absent.)
+    manifest = ROOT / "runs/m9b-canary-prefix/manifest.jsonl"
+    before = manifest.read_text() if manifest.exists() else None
+    existed = (ROOT / "runs/m9b-canary-prefix").exists()
     with pytest.raises(SystemExit, match="venv-bench"):
         DRIVER.main()
-    assert not (ROOT / "runs/m9b-canary-prefix").exists()
+    assert (ROOT / "runs/m9b-canary-prefix").exists() == existed
+    assert (manifest.read_text() if manifest.exists() else None) == before
 
 
 def test_sealed_order_and_ids() -> None:
