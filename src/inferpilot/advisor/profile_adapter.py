@@ -21,7 +21,7 @@ from ..workload_profile import WorkloadProfile
 from .models import AdvisorDecision, AdvisorPolicy, AdvisorRequest
 from .recommend import recommend
 
-PROFILE_DECISION_VERSION = "0.1.0"
+PROFILE_DECISION_VERSION = "0.1.1"
 
 
 class ProfileContext(SchemaModel):
@@ -37,7 +37,9 @@ class ProfileContext(SchemaModel):
 class ProfileAdvisorDecision(SchemaModel):
     """Self-validating, profile-bound advisor decision."""
 
-    profile_decision_version: Literal["0.1.0"] = "0.1.0"
+    profile_decision_version: Literal["0.1.1"] = "0.1.1"
+    policy: AdvisorPolicy
+    profile: WorkloadProfile
     profile_provenance_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
     context: ProfileContext
     status: Literal["recommended", "abstain"]
@@ -47,60 +49,52 @@ class ProfileAdvisorDecision(SchemaModel):
 
     @model_validator(mode="after")
     def _check(self) -> "ProfileAdvisorDecision":
-        if self.decision is not None:
-            # Mirror the embedded (itself self-validating) advisor decision exactly.
-            if (self.status, self.engine_overrides, self.reasons) != (
-                self.decision.status, self.decision.engine_overrides, self.decision.reasons
-            ):
-                raise ValueError("profile decision is inconsistent with the embedded advisor decision")
-        else:
-            # Early abstention (no request formed): must be a reasoned abstain.
-            if self.status != "abstain" or self.engine_overrides is not None or not self.reasons:
-                raise ValueError("an early profile abstention must carry reasons and no overrides")
+        if self.profile_provenance_sha256 != self.profile.provenance_sha256:
+            raise ValueError("profile provenance digest is inconsistent with embedded profile")
+        expected = _decision_fields(self.policy, self.profile, self.context)
+        if (self.status, self.engine_overrides, self.reasons, self.decision) != expected:
+            raise ValueError("profile advisor decision is inconsistent with embedded evidence")
         return self
 
 
-def advise_from_profile(
-    policy: AdvisorPolicy, profile: WorkloadProfile, context: ProfileContext
-) -> ProfileAdvisorDecision:
-    """Recommend only for an exact, evidence-supported fixed-length profile; else abstain."""
-    digest = profile.provenance_sha256
-
-    def _early(reasons: list[str]) -> ProfileAdvisorDecision:
-        return ProfileAdvisorDecision(
-            profile_provenance_sha256=digest, context=context, status="abstain",
-            engine_overrides=None, reasons=reasons, decision=None,
-        )
+def _decision_fields(policy: AdvisorPolicy, profile: WorkloadProfile, context: ProfileContext):
+    """Pure derivation used by construction and serialized-report validation."""
+    def _early(reasons: list[str]):
+        return "abstain", None, reasons, None
 
     if not context.declared_fixed_length:
         return _early(["workload_not_declared_fixed_length"])
-
     prompts = {o.prompt_tokens for o in profile.observations}
     outputs = {o.output_tokens for o in profile.observations}
-    mixed: list[str] = []
+    mixed = []
     if len(prompts) != 1:
         mixed.append("mixed_prompt_lengths")
     if len(outputs) != 1:
         mixed.append("mixed_output_lengths")
     if mixed:
         return _early(mixed)
-
     rate = profile.realized_request_rate_qps
     if rate is None:
-        return _early(["unsupported_request_rate_qps"])  # insufficient evidence: no exact rate
-
+        return _early(["unsupported_request_rate_qps"])
     try:
         request = AdvisorRequest(
             model=context.model, revision=context.revision, gpu_name=context.gpu_name,
             arrival_pattern=context.arrival_pattern,
             prompt_tokens=next(iter(prompts)), output_tokens=next(iter(outputs)),
-            request_rate_qps=rate,  # exact observed rate; never mapped to a regime
+            request_rate_qps=rate,
         )
     except ValidationError:
         return _early(["unsupported_workload_shape"])
-
     decision = recommend(policy, request)
+    return decision.status, decision.engine_overrides, decision.reasons, decision
+
+
+def advise_from_profile(
+    policy: AdvisorPolicy, profile: WorkloadProfile, context: ProfileContext
+) -> ProfileAdvisorDecision:
+    """Recommend only for an exact, evidence-supported fixed-length profile; else abstain."""
+    status, overrides, reasons, decision = _decision_fields(policy, profile, context)
     return ProfileAdvisorDecision(
-        profile_provenance_sha256=digest, context=context, status=decision.status,
-        engine_overrides=decision.engine_overrides, reasons=decision.reasons, decision=decision,
+        policy=policy, profile=profile, profile_provenance_sha256=profile.provenance_sha256,
+        context=context, status=status, engine_overrides=overrides, reasons=reasons, decision=decision,
     )
