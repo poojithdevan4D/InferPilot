@@ -38,6 +38,8 @@ def load_verified_policy(
     context_fields = (
         "model", "revision", "gpu_name", "prompt_tokens", "output_tokens",
         "arrival_pattern", "fixed_engine_fields",
+        # A declared prompt-length envelope must be exactly backed by the evidence span.
+        "prompt_tokens_min", "prompt_tokens_max",
     )
     if any(getattr(report, field) != getattr(policy, field) for field in context_fields):
         raise ValueError("policy context does not match applicability evidence")

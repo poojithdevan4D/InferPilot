@@ -136,3 +136,49 @@ def test_policy_loader_requires_and_binds_applicability_evidence(
     policy_path.write_text(AdvisorPolicy.model_validate(raw).model_dump_json())
     with pytest.raises(ValueError, match="context"):
         load_verified_policy(policy_path, optimization_path, applicability_path)
+
+
+def test_declared_envelope_must_be_backed_by_evidence_span(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    optimization = b"self-validating optimization report"
+    evidence_source = Path(__file__).parents[1] / "evidence" / "m6-rate-bands.json"
+    policy_source = Path(__file__).parents[1] / "policies" / "m3-rtx3050-qwen05b.json"
+    monkeypatch.setattr(
+        recommend_module.PolicyBenchmarkReport, "model_validate_json",
+        lambda _payload: object(),
+    )
+
+    # An applicability report that records a validated prompt-length span [128, 129].
+    report_raw = RateBandEvidenceReport.model_validate_json(
+        evidence_source.read_text()
+    ).model_dump(mode="json")
+    report_raw["prompt_tokens_min"] = 128
+    report_raw["prompt_tokens_max"] = 129
+    applicability = RateBandEvidenceReport.model_validate(report_raw).model_dump_json().encode()
+
+    policy_raw = AdvisorPolicy.model_validate_json(policy_source.read_text()).model_dump(mode="json")
+    policy_raw["evidence_report_sha256"] = hashlib.sha256(optimization).hexdigest()
+    policy_raw["applicability_report_sha256"] = hashlib.sha256(applicability).hexdigest()
+
+    optimization_path = tmp_path / "optimization.json"
+    applicability_path = tmp_path / "applicability.json"
+    policy_path = tmp_path / "policy.json"
+    optimization_path.write_bytes(optimization)
+    applicability_path.write_bytes(applicability)
+
+    # Policy declaring the SAME envelope the evidence records -> loads.
+    backed = deepcopy(policy_raw)
+    backed["prompt_tokens_min"] = 128
+    backed["prompt_tokens_max"] = 129
+    policy_path.write_text(AdvisorPolicy.model_validate(backed).model_dump_json())
+    loaded = load_verified_policy(policy_path, optimization_path, applicability_path)
+    assert (loaded.prompt_tokens_min, loaded.prompt_tokens_max) == (128, 129)
+
+    # Policy declaring an envelope NOT recorded by the evidence -> rejected.
+    unbacked = deepcopy(policy_raw)
+    unbacked["prompt_tokens_min"] = 100
+    unbacked["prompt_tokens_max"] = 129
+    policy_path.write_text(AdvisorPolicy.model_validate(unbacked).model_dump_json())
+    with pytest.raises(ValueError, match="context"):
+        load_verified_policy(policy_path, optimization_path, applicability_path)

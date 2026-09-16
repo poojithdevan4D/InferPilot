@@ -51,6 +51,11 @@ class RateBandEvidenceReport(SchemaModel):
     revision: str
     gpu_name: str
     prompt_tokens: int = Field(gt=0)
+    # Optional validated prompt-length span the evidence was collected over. When
+    # recorded, a policy may declare a matching prompt_tokens_min/max envelope and
+    # apply inside it. Both None (default) keeps the exact-length contract.
+    prompt_tokens_min: int | None = Field(default=None, gt=0)
+    prompt_tokens_max: int | None = Field(default=None, gt=0)
     output_tokens: int = Field(gt=1)
     arrival_pattern: Literal["poisson-v1", "batched-poisson-v1"]
     fixed_engine_fields: dict[str, Any]
@@ -60,6 +65,13 @@ class RateBandEvidenceReport(SchemaModel):
 
     @model_validator(mode="after")
     def check(self):
+        if (self.prompt_tokens_min is None) != (self.prompt_tokens_max is None):
+            raise ValueError("prompt-length span requires both min and max")
+        if self.prompt_tokens_min is not None:
+            if self.prompt_tokens_min > self.prompt_tokens_max:
+                raise ValueError("prompt_tokens_min must not exceed prompt_tokens_max")
+            if not self.prompt_tokens_min <= self.prompt_tokens <= self.prompt_tokens_max:
+                raise ValueError("nominal prompt_tokens must lie inside the recorded span")
         ordered = sorted(self.bands, key=lambda band: band.min_rate_qps)
         if any(
             left.max_rate_qps >= right.min_rate_qps
