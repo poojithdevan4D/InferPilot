@@ -56,11 +56,14 @@ def load_verified_policy(
 
 def _derive(policy: AdvisorPolicy, request: AdvisorRequest):
     reasons = []
-    for field in (
-        "model", "revision", "gpu_name", "prompt_tokens", "output_tokens", "arrival_pattern"
-    ):
+    for field in ("model", "revision", "gpu_name", "output_tokens", "arrival_pattern"):
         if getattr(request, field) != getattr(policy, field):
             reasons.append(f"unsupported_{field}")
+    # prompt_tokens matches inside the validated envelope when declared, else exactly.
+    prompt_lo = policy.prompt_tokens if policy.prompt_tokens_min is None else policy.prompt_tokens_min
+    prompt_hi = policy.prompt_tokens if policy.prompt_tokens_max is None else policy.prompt_tokens_max
+    if not prompt_lo <= request.prompt_tokens <= prompt_hi:
+        reasons.append("unsupported_prompt_tokens")
     if policy.policy_version == "0.1.0":
         matches = [
             regime for regime in policy.regimes

@@ -67,8 +67,18 @@ def _decision_fields(policy: AdvisorPolicy, profile: WorkloadProfile, context: P
     prompts = {o.prompt_tokens for o in profile.observations}
     outputs = {o.output_tokens for o in profile.observations}
     mixed = []
-    if len(prompts) != 1:
+    if policy.prompt_tokens_min is not None:
+        # Policy declares a validated prompt-length envelope: every observed prompt
+        # must fall inside it, but need not be a single value.
+        lo, hi = policy.prompt_tokens_min, policy.prompt_tokens_max
+        if any(not (lo <= p <= hi) for p in prompts):
+            mixed.append("prompt_lengths_outside_validated_envelope")
+        prompt_value = policy.prompt_tokens
+    elif len(prompts) != 1:
         mixed.append("mixed_prompt_lengths")
+        prompt_value = None
+    else:
+        prompt_value = next(iter(prompts))
     if len(outputs) != 1:
         mixed.append("mixed_output_lengths")
     if mixed:
@@ -80,7 +90,7 @@ def _decision_fields(policy: AdvisorPolicy, profile: WorkloadProfile, context: P
         request = AdvisorRequest(
             model=context.model, revision=context.revision, gpu_name=context.gpu_name,
             arrival_pattern=context.arrival_pattern,
-            prompt_tokens=next(iter(prompts)), output_tokens=next(iter(outputs)),
+            prompt_tokens=prompt_value, output_tokens=next(iter(outputs)),
             request_rate_qps=rate,
         )
     except ValidationError:

@@ -21,6 +21,13 @@ class AdvisorPolicy(SchemaModel):
     revision: str
     gpu_name: str
     prompt_tokens: int = Field(gt=0)
+    # Optional validated prompt-length envelope. When set, the policy's evidence
+    # was collected over prompts spanning [prompt_tokens_min, prompt_tokens_max]
+    # (e.g. deterministic tokenizer variance around a nominal length), and the
+    # advisor applies inside that band instead of demanding an exact scalar match.
+    # Both None (default) preserves the strict exact-length behavior.
+    prompt_tokens_min: int | None = Field(default=None, gt=0)
+    prompt_tokens_max: int | None = Field(default=None, gt=0)
     output_tokens: int = Field(gt=1)
     arrival_pattern: Literal["poisson-v1", "batched-poisson-v1"]
     fixed_engine_fields: dict[str, Any]
@@ -30,6 +37,13 @@ class AdvisorPolicy(SchemaModel):
 
     @model_validator(mode="after")
     def check(self):
+        if (self.prompt_tokens_min is None) != (self.prompt_tokens_max is None):
+            raise ValueError("prompt-length envelope requires both min and max")
+        if self.prompt_tokens_min is not None:
+            if self.prompt_tokens_min > self.prompt_tokens_max:
+                raise ValueError("prompt_tokens_min must not exceed prompt_tokens_max")
+            if not self.prompt_tokens_min <= self.prompt_tokens <= self.prompt_tokens_max:
+                raise ValueError("nominal prompt_tokens must lie inside its validated envelope")
         rates = [regime.request_rate_qps for regime in self.regimes]
         if len(set(rates)) != len(rates):
             raise ValueError("regime rates must be distinct")

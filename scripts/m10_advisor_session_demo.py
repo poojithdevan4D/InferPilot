@@ -124,10 +124,27 @@ def main() -> int:
     raw = _raw_window(result)
     raw_decision = advise_from_profile(policy, raw.profile, raw.context)
     raw_session = run_session(spec, initial, [raw])
-    print("Part 1 - raw measured window (fail-closed):")
+    print("Part 1 - raw measured window under the exact-length policy (fail-closed):")
     print(f"  advisor: {raw_decision.status}  {raw_decision.reasons}")
     print(f"  action : {raw_session.replay.transitions[0].action}  "
           f"-> config unchanged {raw_session.final_state.current_engine_overrides}\n")
+
+    # Part 1b - isolate the prompt-length axis: REAL recorded 128/129 prompt lengths,
+    # arrival rate held at an in-band 6 qps (raw processing-start times are not a
+    # faithful arrival trace). Exact policy abstains; the [128,129] validated-envelope
+    # policy (the span the M3 evidence was collected on) recommends.
+    real_lengths = [m.prompt_tokens for m in sorted(result.measurements, key=lambda m: m.start_time_s)][:WINDOW]
+    mixed_profile = build_workload_profile([
+        WorkloadObservation(arrival_offset_s=i / 6, prompt_tokens=real_lengths[i], output_tokens=32, success=True)
+        for i in range(len(real_lengths))
+    ])
+    ctx = _context(result)
+    envelope_policy = policy.model_copy(update={"prompt_tokens_min": 128, "prompt_tokens_max": 129})
+    exact = advise_from_profile(policy, mixed_profile, ctx)
+    env = advise_from_profile(envelope_policy, mixed_profile, ctx)
+    print(f"Part 1b - real {sorted(set(real_lengths))}-token prompt mix at 6 qps:")
+    print(f"  exact-length policy   : {exact.status}  {exact.reasons}")
+    print(f"  [128,129] envelope    : {env.status}  -> candidate {env.engine_overrides}\n")
 
     # Part 2 - full apply loop on policy-conformant windows + the real canary.
     win = _conformant_window(result)
