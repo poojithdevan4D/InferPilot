@@ -66,7 +66,11 @@ the exact-length behavior byte-for-byte, so the frozen M3 policy is untouched an
 Demonstrated on the real recorded 128/129 mix (demo Part 1b): exact policy abstains, `[128,129]`
 envelope recommends. 372 tests pass.
 
-**Still open (needs the GPU campaign):** issuing an evidence-*backed* envelope on a real policy
-requires the applicability report to record the validated prompt-length span, and the M3 applicability
-sha is frozen. The mechanism is ready; a v-next policy with a measured envelope is a follow-on, best
-folded into the next hardware campaign rather than regenerating frozen M3 evidence in place.
+**Mechanism now complete (commit `e0dd160`).** `RateBandEvidenceReport` records an optional validated
+prompt-length span, and `load_verified_policy` requires a policy's declared envelope to exactly match
+that recorded span — a policy cannot declare an envelope its applicability evidence does not back.
+Both `None` preserves the exact-length contract, so frozen M3 policy + report still verify unchanged.
+
+**Only remaining step (needs the GPU campaign):** produce a *real* applicability report whose recorded
+span is measured (not hand-set), then issue a v-next policy carrying that evidence-backed envelope.
+Best folded into the next hardware campaign rather than regenerating frozen M3 evidence in place.
