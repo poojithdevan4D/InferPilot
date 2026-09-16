@@ -297,6 +297,25 @@ time. It also reports population inter-arrival CV and maximum arrivals in closed
 recomputed on load. Zero/one-arrival prefixes and simultaneous arrivals have explicit
 undefined-field semantics instead of fabricated rates.
 
+### Workload profiling → evidence-bound advisor (M5)
+
+Passive request observations flow through one offline, fail-closed pipeline:
+
+```
+observations (JSON/JSONL) → python -m inferpilot.profiling obs.jsonl profile.json
+  → WorkloadProfile (self-validating, provenance-digested) → advise_from_profile(policy, profile, context)
+  → ProfileAdvisorDecision (recommended override, or a reasoned abstention)
+```
+
+Profiling is **passive characterization, not workload classification** (no Poisson/burst labels).
+Only an exact, evidence-supported context is recommended: the observed realized rate must match a
+validated regime exactly (no rounding/bucketing/interpolation), and token summaries are treated as
+fixed request lengths only for an explicitly-declared fixed-length workload whose every observation
+matches — otherwise the advisor abstains. The decision binds to the profile's provenance digest and is
+tamper-evident. The current policy is validated **only** for the pinned Qwen2.5-0.5B revision, the RTX
+3050 Laptop GPU, fixed 128/32-token `poisson-v1` workloads, and the exact 2/6 QPS regimes; it is **not**
+a production autoscaler or a deployment-safety guarantee. See `docs/advisor.md`.
+
 ### First controlled scheduling experiment
 
 `examples/experiment_c4_seq1.json` through `experiment_c4_seq4.json` hold workload, model,
