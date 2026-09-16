@@ -56,3 +56,17 @@ call before any code moves.
 
 Until a direction is chosen, the guard stays exactly as-is (fail-closed). No code changed by this
 finding.
+
+## Resolution (2026-09-17, commit `2ed53ae`)
+
+Direction **A** implemented. `AdvisorPolicy` gained optional `prompt_tokens_min`/`prompt_tokens_max`;
+`recommend` and `profile_adapter` apply inside the declared band (all observed prompts must be in-band)
+and abstain (`prompt_lengths_outside_validated_envelope`) outside it. Both `None` (default) preserves
+the exact-length behavior byte-for-byte, so the frozen M3 policy is untouched and still fail-closes.
+Demonstrated on the real recorded 128/129 mix (demo Part 1b): exact policy abstains, `[128,129]`
+envelope recommends. 372 tests pass.
+
+**Still open (needs the GPU campaign):** issuing an evidence-*backed* envelope on a real policy
+requires the applicability report to record the validated prompt-length span, and the M3 applicability
+sha is frozen. The mechanism is ready; a v-next policy with a measured envelope is a follow-on, best
+folded into the next hardware campaign rather than regenerating frozen M3 evidence in place.
