@@ -322,6 +322,10 @@ may emit `test_candidate`, but only an explicit canary outcome can emit `apply_c
 `rollback`; the library still performs no live server mutation. See
 `docs/architecture/m7-controller-boundary.md`.
 
+Controller v0.2 requires measured canary evidence rather than trusting a pass/fail boolean. It binds
+the candidate and execution context, recomputes aggregates from raw requests, and applies the declared
+SLO before a transition can report `apply_candidate`. Canary execution itself remains external.
+
 ### First controlled scheduling experiment
 
 `examples/experiment_c4_seq1.json` through `experiment_c4_seq4.json` hold workload, model,

@@ -48,3 +48,7 @@ ramping, gap, and sustained-low/high workloads. Fix window length, minimum obser
 parameters, canary acceptance criteria, and restart cost. Compare the controller with immediate
 switching and a static configuration on false-switch count, time to stable action, abstention rate,
 SLO exposure, and estimated restart cost.
+
+M8 subsequently introduced controller/event v0.2, which replaces the unaudited canary boolean with
+measured `CanaryEvaluation` evidence. The v0.1 replay format remains readable but should not be used
+for new controller studies.

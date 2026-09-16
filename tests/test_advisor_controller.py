@@ -60,7 +60,7 @@ def _decision(rate: float, policy_id: str = "m3"):
 
 
 def _event(rate: float, policy_id: str = "m3") -> ControllerEvent:
-    return ControllerEvent(event_type="observation", decision=_decision(rate, policy_id))
+    return ControllerEvent(event_version="0.1.0", event_type="observation", decision=_decision(rate, policy_id))
 
 
 def _initial() -> ControllerState:
@@ -70,7 +70,7 @@ def _initial() -> ControllerState:
 
 
 def test_three_stable_windows_require_canary_before_apply() -> None:
-    spec = ControllerSpec(advisor_policy=_policy())
+    spec = ControllerSpec(controller_version="0.1.0", advisor_policy=_policy())
     replay = replay_controller(spec, _initial(), [_event(6), _event(6), _event(6)])
     assert [step.action for step in replay.transitions] == [
         "keep_current", "keep_current", "test_candidate"
@@ -79,7 +79,7 @@ def test_three_stable_windows_require_canary_before_apply() -> None:
     assert replay.final_state.canary_candidate["max_num_seqs"] == 4
     applied = advance_controller(
         spec, replay.final_state,
-        ControllerEvent(event_type="canary_result", canary_passed=True),
+        ControllerEvent(event_version="0.1.0", event_type="canary_result", canary_passed=True),
     )
     assert applied.action == "apply_candidate"
     assert applied.after.current_engine_overrides["max_num_seqs"] == 4
@@ -87,7 +87,7 @@ def test_three_stable_windows_require_canary_before_apply() -> None:
 
 
 def test_alternating_recommendations_never_trigger_test() -> None:
-    spec = ControllerSpec(advisor_policy=_policy(), min_consecutive_windows=3)
+    spec = ControllerSpec(controller_version="0.1.0", advisor_policy=_policy(), min_consecutive_windows=3)
     replay = replay_controller(
         spec, _initial(), [_event(6), _event(2), _event(6), _event(2), _event(6)]
     )
@@ -96,7 +96,7 @@ def test_alternating_recommendations_never_trigger_test() -> None:
 
 
 def test_abstention_resets_pending_stability() -> None:
-    spec = ControllerSpec(advisor_policy=_policy(), min_consecutive_windows=2)
+    spec = ControllerSpec(controller_version="0.1.0", advisor_policy=_policy(), min_consecutive_windows=2)
     replay = replay_controller(spec, _initial(), [_event(6), _event(3), _event(6)])
     assert [step.action for step in replay.transitions] == [
         "keep_current", "keep_current", "keep_current"
@@ -106,11 +106,11 @@ def test_abstention_resets_pending_stability() -> None:
 
 
 def test_failed_canary_rolls_back_and_enters_cooldown() -> None:
-    spec = ControllerSpec(advisor_policy=_policy(), min_consecutive_windows=1)
+    spec = ControllerSpec(controller_version="0.1.0", advisor_policy=_policy(), min_consecutive_windows=1)
     test = advance_controller(spec, _initial(), _event(6))
     rolled_back = advance_controller(
         spec, test.after,
-        ControllerEvent(event_type="canary_result", canary_passed=False),
+        ControllerEvent(event_version="0.1.0", event_type="canary_result", canary_passed=False),
     )
     assert rolled_back.action == "rollback"
     assert rolled_back.after.current_engine_overrides == _initial().current_engine_overrides
@@ -123,7 +123,7 @@ def test_failed_canary_rolls_back_and_enters_cooldown() -> None:
 
 
 def test_observations_do_not_advance_an_outstanding_canary() -> None:
-    spec = ControllerSpec(advisor_policy=_policy(), min_consecutive_windows=1)
+    spec = ControllerSpec(controller_version="0.1.0", advisor_policy=_policy(), min_consecutive_windows=1)
     test = advance_controller(spec, _initial(), _event(6))
     waiting = advance_controller(spec, test.after, _event(2))
     assert waiting.action == "keep_current"
@@ -132,19 +132,19 @@ def test_observations_do_not_advance_an_outstanding_canary() -> None:
 
 
 def test_wrong_policy_and_unsolicited_canary_fail_loudly() -> None:
-    spec = ControllerSpec(advisor_policy=_policy())
+    spec = ControllerSpec(controller_version="0.1.0", advisor_policy=_policy())
     with pytest.raises(ValueError, match="policy"):
         advance_controller(spec, _initial(), _event(6, policy_id="other"))
     with pytest.raises(ValueError, match="without an outstanding"):
         advance_controller(
             spec, _initial(),
-            ControllerEvent(event_type="canary_result", canary_passed=True),
+            ControllerEvent(event_version="0.1.0", event_type="canary_result", canary_passed=True),
         )
 
 
 def test_replay_roundtrip_and_tampering_rejected() -> None:
     replay = replay_controller(
-        ControllerSpec(advisor_policy=_policy()),
+        ControllerSpec(controller_version="0.1.0", advisor_policy=_policy()),
         _initial(),
         [_event(6), _event(6), _event(6)],
     )
@@ -159,8 +159,8 @@ def test_replay_roundtrip_and_tampering_rejected() -> None:
 @pytest.mark.parametrize(
     "event",
     [
-        {"event_type": "observation", "decision": None, "canary_passed": None},
-        {"event_type": "canary_result", "decision": None, "canary_passed": None},
+        {"event_version": "0.1.0", "event_type": "observation", "decision": None, "canary_passed": None},
+        {"event_version": "0.1.0", "event_type": "canary_result", "decision": None, "canary_passed": None},
     ],
 )
 def test_incomplete_events_are_rejected(event) -> None:

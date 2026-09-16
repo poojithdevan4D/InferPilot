@@ -65,3 +65,8 @@ themselves on load and reject tampering.
 This is an offline control contract, not a live vLLM integration. Window length, canary measurement,
 restart orchestration, and production rollback remain external and unvalidated. See
 `docs/architecture/m7-controller-boundary.md`.
+
+Controller v0.2 closes the boolean-canary trust gap: a canary outcome is derived from an embedded,
+baseline-eligible `ExperimentResult`, exact context/configuration matching, recomputed raw-request
+aggregates, and declared TTFT/TPOT limits. Version fields are mandatory. v0.1 remains readable for
+compatibility but is not the recommended path. See `docs/architecture/m8-measured-canary.md`.

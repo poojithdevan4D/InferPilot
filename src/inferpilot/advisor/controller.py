@@ -13,6 +13,7 @@ from typing import Any, Literal
 from pydantic import Field, model_validator
 
 from .._base import SchemaModel
+from .canary import CanaryEvaluation, CanarySpec
 from .models import AdvisorPolicy
 from .profile_adapter import ProfileAdvisorDecision
 
@@ -21,10 +22,17 @@ CONTROLLER_VERSION = "0.1.0"
 
 
 class ControllerSpec(SchemaModel):
-    controller_version: Literal["0.1.0"] = CONTROLLER_VERSION
+    controller_version: Literal["0.1.0", "0.2.0"]
     advisor_policy: AdvisorPolicy
     min_consecutive_windows: int = Field(default=3, ge=1)
     cooldown_windows: int = Field(default=2, ge=0)
+    canary_spec: CanarySpec | None = None
+
+    @model_validator(mode="after")
+    def check(self):
+        if (self.controller_version == "0.2.0") != (self.canary_spec is not None):
+            raise ValueError("controller 0.2.0 requires canary_spec; 0.1.0 forbids it")
+        return self
 
 
 class ControllerState(SchemaModel):
@@ -48,17 +56,26 @@ class ControllerState(SchemaModel):
 
 
 class ControllerEvent(SchemaModel):
+    event_version: Literal["0.1.0", "0.2.0"]
     event_type: Literal["observation", "canary_result"]
     decision: ProfileAdvisorDecision | None = None
     canary_passed: bool | None = None
+    canary_evaluation: CanaryEvaluation | None = None
 
     @model_validator(mode="after")
     def check(self):
         if self.event_type == "observation":
-            if self.decision is None or self.canary_passed is not None:
+            if (
+                self.decision is None
+                or self.canary_passed is not None
+                or self.canary_evaluation is not None
+            ):
                 raise ValueError("observation requires only an advisor decision")
-        elif self.decision is not None or self.canary_passed is None:
-            raise ValueError("canary_result requires only a pass/fail outcome")
+        elif self.event_version == "0.1.0":
+            if self.decision is not None or self.canary_passed is None or self.canary_evaluation is not None:
+                raise ValueError("canary_result 0.1.0 requires only a pass/fail outcome")
+        elif self.decision is not None or self.canary_passed is not None or self.canary_evaluation is None:
+            raise ValueError("canary_result 0.2.0 requires only measured canary evidence")
         return self
 
 
@@ -122,11 +139,26 @@ def _state(
 def _derive_transition(
     spec: ControllerSpec, before: ControllerState, event: ControllerEvent
 ) -> tuple[str, dict[str, Any] | None, list[str], ControllerState]:
+    if event.event_version != spec.controller_version:
+        raise ValueError("controller event version does not match controller spec")
     if event.event_type == "canary_result":
         if before.canary_candidate is None:
             raise ValueError("canary result received without an outstanding canary")
         candidate = before.canary_candidate
-        if event.canary_passed:
+        if spec.controller_version == "0.2.0":
+            evaluation = event.canary_evaluation
+            if evaluation.spec != spec.canary_spec:
+                raise ValueError("canary evaluation spec does not match controller spec")
+            if evaluation.decision.policy != spec.advisor_policy:
+                raise ValueError("canary advisor policy does not match controller spec")
+            if evaluation.decision.engine_overrides != candidate:
+                raise ValueError("canary evidence does not match outstanding candidate")
+            passed = evaluation.passed
+            canary_reasons = evaluation.reasons
+        else:
+            passed = event.canary_passed
+            canary_reasons = []
+        if passed:
             return (
                 "apply_candidate",
                 candidate,
@@ -136,7 +168,7 @@ def _derive_transition(
         return (
             "rollback",
             candidate,
-            ["canary_failed"],
+            ["canary_failed", *canary_reasons],
             _state(
                 before.current_engine_overrides,
                 cooldown=spec.cooldown_windows,
