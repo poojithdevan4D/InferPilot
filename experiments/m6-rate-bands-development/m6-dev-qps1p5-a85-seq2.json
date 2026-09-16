@@ -1,0 +1,46 @@
+{
+  "schema_version": "0.5.0",
+  "experiment_id": "m6-dev-qps1p5-a85-seq2",
+  "name": "m6-dev-qps1p5-a85-seq2",
+  "description": "M6 development boundary cell validating a frozen advisor action; not an optimizer search.",
+  "engine": {
+    "model": "Qwen/Qwen2.5-0.5B-Instruct",
+    "revision": "7ae557604adf67be50417f59c2c2f167def9a775",
+    "dtype": "auto",
+    "max_model_len": 2048,
+    "max_num_seqs": 2,
+    "max_num_batched_tokens": 512,
+    "gpu_memory_utilization": 0.85,
+    "kv_cache_dtype": "auto",
+    "enable_prefix_caching": false,
+    "enable_chunked_prefill": true,
+    "sampler_backend": "pytorch",
+    "generation_config": "vllm",
+    "extra_args": {}
+  },
+  "workload": {
+    "name": "m6-rate-band-qps1p5",
+    "num_requests": 256,
+    "warmup_requests": 4,
+    "prompt_tokens": 128,
+    "output_tokens": 32,
+    "request_rate_qps": 1.5,
+    "arrival_pattern": "poisson-v1",
+    "burst_size": null,
+    "max_concurrency": null,
+    "temperature": 0.0,
+    "ignore_eos": true,
+    "seed": 0,
+    "prompt_seed": 5002,
+    "arrival_seed": 85
+  },
+  "slo": null,
+  "seed": 0,
+  "tags": [
+    "m6",
+    "development",
+    "rate-band",
+    "applicability",
+    "offline"
+  ]
+}
