@@ -15,14 +15,17 @@ import importlib.util
 import json
 import statistics
 import sys
+import os
 from pathlib import Path
 
 from inferpilot import ExperimentConfig, ExperimentResult, RunnerPhaseTiming
 from inferpilot.comparison.store import ResultStore
 
 ROOT = Path(__file__).resolve().parents[2]
-HERE = Path(__file__).resolve().parent
-OUT = ROOT / "runs/gpu-campaign-7b"
+# Campaign-agnostic: G7_CAMPAIGN selects experiments/<name>/ configs + runs/<name>/ store.
+CAMPAIGN = os.environ.get("G7_CAMPAIGN", "gpu-campaign-7b")
+HERE = ROOT / "experiments" / CAMPAIGN
+OUT = ROOT / "runs" / CAMPAIGN
 MANIFEST = OUT / "manifest.jsonl"
 STORE = OUT / "store"
 MAX_ATTEMPTS = 2
@@ -151,7 +154,7 @@ def run_ids(eids: list[str], runner) -> int:
 
 def _phase_ids(phase: str, widths: tuple[int, ...]) -> list[str]:
     if phase == "phase0":
-        return [GEN.dev_id(6, 60, 1)]
+        return [GEN.dev_id(GEN.RATES[0], GEN.DEV_SEEDS[0], GEN.WIDTHS[0])]
     if phase == "phase1":
         return [GEN.default_id(r, s) for r in GEN.RATES for s in GEN.DEV_SEEDS]
     if phase == "phase2":

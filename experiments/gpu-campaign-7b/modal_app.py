@@ -59,13 +59,16 @@ def main():
 
 
 @app.local_entrypoint()
-def campaign(phase: str, widths: str = ""):
+def campaign(phase: str, widths: str = "", campaign: str = "gpu-campaign-7b"):
     """Drive a campaign phase: run cells on the GPU, validate + store locally.
 
     modal run experiments/gpu-campaign-7b/modal_app.py::campaign --phase phase1
+    modal run .../modal_app.py::campaign --phase phase1 --campaign gpu-campaign-7b-decode
     """
     import importlib.util
+    import os
 
+    os.environ["G7_CAMPAIGN"] = campaign  # picks experiments/<campaign>/ + runs/<campaign>/
     spec = importlib.util.spec_from_file_location(
         "g7_campaign", Path(__file__).resolve().parent / "run_campaign.py"
     )
@@ -74,7 +77,6 @@ def campaign(phase: str, widths: str = ""):
     rc.freeze_check()
     ws = tuple(int(w) for w in widths.split(",") if w) if widths else rc.GEN.WIDTHS
     eids = rc._phase_ids(phase, ws)
-    rc = rc  # keep ref
     code = rc.run_ids(eids, lambda cj: run_cell.remote(cj))
     if code != 0:
         raise SystemExit(code)
