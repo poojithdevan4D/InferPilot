@@ -1,0 +1,46 @@
+{
+  "schema_version": "0.5.0",
+  "experiment_id": "g7-dev-qps6-a60-seq8",
+  "name": "g7-dev-qps6-a60-seq8",
+  "description": "Phase 2 crossover-search development cell; not held-out evidence.",
+  "engine": {
+    "model": "Qwen/Qwen2.5-7B-Instruct",
+    "revision": "a09a35458c702b33eeacc393d103063234e8bc28",
+    "dtype": "auto",
+    "max_model_len": 2048,
+    "max_num_seqs": 8,
+    "max_num_batched_tokens": 2048,
+    "gpu_memory_utilization": 0.9,
+    "kv_cache_dtype": "auto",
+    "enable_prefix_caching": null,
+    "enable_chunked_prefill": true,
+    "sampler_backend": "pytorch",
+    "generation_config": "vllm",
+    "extra_args": {}
+  },
+  "workload": {
+    "name": "g7-dev-qps6",
+    "num_requests": 256,
+    "warmup_requests": 4,
+    "prompt_tokens": 128,
+    "output_tokens": 32,
+    "request_rate_qps": 6.0,
+    "arrival_pattern": "poisson-v1",
+    "burst_size": null,
+    "max_concurrency": null,
+    "temperature": 0.0,
+    "ignore_eos": true,
+    "seed": 0,
+    "prompt_seed": 7007,
+    "arrival_seed": 60
+  },
+  "slo": null,
+  "seed": 0,
+  "tags": [
+    "gpu-campaign",
+    "qwen2.5-7b",
+    "crossover",
+    "development",
+    "poisson-v1"
+  ]
+}
