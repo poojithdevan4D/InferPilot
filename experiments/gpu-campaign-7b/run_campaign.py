@@ -41,13 +41,17 @@ def _percentile(xs, q):
 
 
 def validate(result: ExperimentResult, run_dir: Path, rate: float, seed: int) -> dict:
-    """Same acceptance rules as M3 (counts, verified config, telemetry, phases, drift)."""
+    """Same acceptance rules as M3 (counts, verified config, telemetry, phases, drift).
+
+    Request/arrival counts are taken from the config, not hardcoded, so campaigns with
+    different num_requests validate correctly."""
+    expected_n = result.config.workload.num_requests
     p, a = [], result.aggregates
     if result.status.value != "completed":
         p.append(f"status={result.status.value}")
     if not result.is_baseline_eligible:
         p.append("not_baseline_eligible")
-    if a is None or (a.num_requests, a.num_successful, a.num_failed) != (256, 256, 0):
+    if a is None or (a.num_requests, a.num_successful, a.num_failed) != (expected_n, expected_n, 0):
         p.append("request_counts_invalid")
     if result.effective_config is None or not result.effective_config.verified or result.effective_config.unverified_fields:
         p.append("effective_not_verified")
@@ -74,7 +78,7 @@ def validate(result: ExperimentResult, run_dir: Path, rate: float, seed: int) ->
     else:
         ar = json.loads(ap.read_text())
         scheduled, actual = ar.get("scheduled_offsets_s", []), ar.get("actual_dispatch_offsets_s", [])
-        if len(scheduled) != 256 or len(actual) != 256:
+        if len(scheduled) != expected_n or len(actual) != expected_n:
             p.append("arrival_counts_invalid")
         else:
             ds = [(x - y) * 1000 for y, x in zip(scheduled, actual)]
