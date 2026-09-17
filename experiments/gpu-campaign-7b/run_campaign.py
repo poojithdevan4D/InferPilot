@@ -164,7 +164,11 @@ def _phase_ids(phase: str, widths: tuple[int, ...]) -> list[str]:
     if phase == "phase2":
         return [GEN.dev_id(r, s, w) for r in GEN.RATES for s in GEN.DEV_SEEDS for w in GEN.WIDTHS]
     if phase == "phase3":
-        return [GEN.held_id(r, s, w) for r in GEN.RATES for s in GEN.HELD_SEEDS for w in widths]
+        # held-out default baselines + winner widths on the held-out seed block
+        return (
+            [GEN.default_id(r, s) for r in GEN.RATES for s in GEN.HELD_SEEDS]
+            + [GEN.held_id(r, s, w) for r in GEN.RATES for s in GEN.HELD_SEEDS for w in widths]
+        )
     raise SystemExit(f"unknown phase {phase}")
 
 

@@ -1,7 +1,7 @@
 {
   "schema_version": "0.5.0",
-  "experiment_id": "g7d-default-qps2-a62",
-  "name": "g7d-default-qps2-a62",
+  "experiment_id": "g7d-default-qps2-a73",
+  "name": "g7d-default-qps2-a73",
   "description": "Decode-heavy vLLM-default baseline.",
   "engine": {
     "model": "Qwen/Qwen2.5-7B-Instruct",
@@ -32,7 +32,7 @@
     "ignore_eos": true,
     "seed": 0,
     "prompt_seed": 7007,
-    "arrival_seed": 62
+    "arrival_seed": 73
   },
   "slo": null,
   "seed": 0,

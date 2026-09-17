@@ -78,13 +78,15 @@ def held_id(rate: int, seed: int, width: int) -> str:
 
 def expected() -> dict[str, bytes]:
     files: dict[str, bytes] = {}
+    # vLLM-default baseline on dev AND held-out seeds (held defaults needed to confirm
+    # winners on unseen seeds within the same seed block).
     for rate in RATES:
-        for seed in DEV_SEEDS:
+        for seed in (*DEV_SEEDS, *HELD_SEEDS):
             eid = default_id(rate, seed)
             files[f"{eid}.json"] = (json.dumps(_config(
                 eid, dict(BASE_ENGINE), _workload(rate, seed, "default"),
                 ["gpu-campaign", "qwen2.5-7b", "decode-heavy", "default-baseline"],
-                "Decode-heavy Phase-1 vLLM-default baseline.",
+                "Decode-heavy vLLM-default baseline.",
             ), indent=2) + "\n").encode()
     for rate in RATES:
         for seed in DEV_SEEDS:
