@@ -25,6 +25,7 @@ from .workload_profile import (
 from .telemetry import ResourceSample, ResourceTelemetry
 from .measurements import RequestMeasurement
 from .results import AggregateMetrics, ExperimentResult
+from .saturation import SaturationReport, detect_saturation
 from .status import ExperimentStatus, FailureRecord
 from .workload import WorkloadSpec
 
@@ -35,6 +36,8 @@ __all__ = [
     "SUPPORTED_SCHEMA_VERSIONS",
     "SchemaModel",
     "VersionedSchemaModel",
+    "SaturationReport",
+    "detect_saturation",
     "ExperimentConfig",
     "EngineConfig",
     "SamplerBackend",
