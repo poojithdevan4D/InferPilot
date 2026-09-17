@@ -20,6 +20,7 @@ from pydantic import model_validator
 from .._base import SchemaModel
 from ..workload_profile import WorkloadProfile
 from .canary import CanaryEvaluation
+from .config_comparison import ConfigComparison
 from .controller import (
     ControllerEvent,
     ControllerReplay,
@@ -39,21 +40,22 @@ class SessionStep(SchemaModel):
     # observation
     profile: Optional[WorkloadProfile] = None
     context: Optional[ProfileContext] = None
-    # canary_result
-    canary_evaluation: Optional[CanaryEvaluation] = None  # controller 0.2.0
-    canary_passed: Optional[bool] = None                  # controller 0.1.0
+    # canary_result — exactly one of these, matching the controller version
+    canary_evaluation: Optional[CanaryEvaluation] = None    # controller 0.2.0
+    canary_passed: Optional[bool] = None                    # controller 0.1.0
+    config_comparison: Optional[ConfigComparison] = None    # controller 0.3.0
 
     @model_validator(mode="after")
     def _check(self) -> "SessionStep":
+        evidence = (self.canary_evaluation, self.canary_passed, self.config_comparison)
         if self.kind == "observation":
-            if self.profile is None or self.context is None or \
-                    self.canary_evaluation is not None or self.canary_passed is not None:
+            if self.profile is None or self.context is None or any(x is not None for x in evidence):
                 raise ValueError("an observation step requires only profile + context")
         else:
             if self.profile is not None or self.context is not None:
                 raise ValueError("a canary_result step must not carry profile/context")
-            if (self.canary_evaluation is None) == (self.canary_passed is None):
-                raise ValueError("a canary_result step needs exactly one of evaluation/passed")
+            if sum(x is not None for x in evidence) != 1:
+                raise ValueError("a canary_result step needs exactly one of evaluation/passed/comparison")
         return self
 
 
@@ -62,6 +64,11 @@ def _event(spec: ControllerSpec, step: SessionStep) -> ControllerEvent:
         decision = advise_from_profile(spec.advisor_policy, step.profile, step.context)
         return ControllerEvent(
             event_version=spec.controller_version, event_type="observation", decision=decision
+        )
+    if spec.controller_version == "0.3.0":
+        return ControllerEvent(
+            event_version="0.3.0", event_type="canary_result",
+            config_comparison=step.config_comparison,
         )
     if spec.controller_version == "0.2.0":
         return ControllerEvent(

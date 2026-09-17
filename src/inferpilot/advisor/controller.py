@@ -14,6 +14,7 @@ from pydantic import Field, model_validator
 
 from .._base import SchemaModel
 from .canary import CanaryEvaluation, CanarySpec
+from .config_comparison import ComparisonSpec, ConfigComparison
 from .models import AdvisorPolicy
 from .profile_adapter import ProfileAdvisorDecision
 
@@ -22,16 +23,21 @@ CONTROLLER_VERSION = "0.1.0"
 
 
 class ControllerSpec(SchemaModel):
-    controller_version: Literal["0.1.0", "0.2.0"]
+    controller_version: Literal["0.1.0", "0.2.0", "0.3.0"]
     advisor_policy: AdvisorPolicy
     min_consecutive_windows: int = Field(default=3, ge=1)
     cooldown_windows: int = Field(default=2, ge=0)
     canary_spec: CanarySpec | None = None
+    comparison_spec: ComparisonSpec | None = None
 
     @model_validator(mode="after")
     def check(self):
+        # 0.1.0: boolean canary, no specs. 0.2.0: absolute-SLO canary (canary_spec).
+        # 0.3.0: candidate must Pareto-dominate the incumbent (comparison_spec).
         if (self.controller_version == "0.2.0") != (self.canary_spec is not None):
-            raise ValueError("controller 0.2.0 requires canary_spec; 0.1.0 forbids it")
+            raise ValueError("controller 0.2.0 requires canary_spec; other versions forbid it")
+        if (self.controller_version == "0.3.0") != (self.comparison_spec is not None):
+            raise ValueError("controller 0.3.0 requires comparison_spec; other versions forbid it")
         return self
 
 
@@ -56,26 +62,27 @@ class ControllerState(SchemaModel):
 
 
 class ControllerEvent(SchemaModel):
-    event_version: Literal["0.1.0", "0.2.0"]
+    event_version: Literal["0.1.0", "0.2.0", "0.3.0"]
     event_type: Literal["observation", "canary_result"]
     decision: ProfileAdvisorDecision | None = None
     canary_passed: bool | None = None
     canary_evaluation: CanaryEvaluation | None = None
+    config_comparison: ConfigComparison | None = None
 
     @model_validator(mode="after")
     def check(self):
+        extras = (self.canary_passed, self.canary_evaluation, self.config_comparison)
         if self.event_type == "observation":
-            if (
-                self.decision is None
-                or self.canary_passed is not None
-                or self.canary_evaluation is not None
-            ):
+            if self.decision is None or any(x is not None for x in extras):
                 raise ValueError("observation requires only an advisor decision")
         elif self.event_version == "0.1.0":
-            if self.decision is not None or self.canary_passed is None or self.canary_evaluation is not None:
+            if self.decision is not None or self.canary_passed is None or self.canary_evaluation is not None or self.config_comparison is not None:
                 raise ValueError("canary_result 0.1.0 requires only a pass/fail outcome")
-        elif self.decision is not None or self.canary_passed is not None or self.canary_evaluation is None:
-            raise ValueError("canary_result 0.2.0 requires only measured canary evidence")
+        elif self.event_version == "0.2.0":
+            if self.decision is not None or self.canary_passed is not None or self.canary_evaluation is None or self.config_comparison is not None:
+                raise ValueError("canary_result 0.2.0 requires only measured canary evidence")
+        elif self.decision is not None or self.canary_passed is not None or self.canary_evaluation is not None or self.config_comparison is None:
+            raise ValueError("canary_result 0.3.0 requires only a config comparison")
         return self
 
 
@@ -136,6 +143,15 @@ def _state(
     )
 
 
+def _engine_matches(result, overrides: dict[str, Any]) -> bool:
+    """True iff the result's engine config sets exactly the given overrides."""
+    engine = result.config.engine
+    return all(
+        hasattr(engine, field) and getattr(engine, field) == value
+        for field, value in overrides.items()
+    )
+
+
 def _derive_transition(
     spec: ControllerSpec, before: ControllerState, event: ControllerEvent
 ) -> tuple[str, dict[str, Any] | None, list[str], ControllerState]:
@@ -155,6 +171,16 @@ def _derive_transition(
                 raise ValueError("canary evidence does not match outstanding candidate")
             passed = evaluation.passed
             canary_reasons = evaluation.reasons
+        elif spec.controller_version == "0.3.0":
+            comparison = event.config_comparison
+            if comparison.spec != spec.comparison_spec:
+                raise ValueError("config comparison spec does not match controller spec")
+            if not _engine_matches(comparison.candidate, candidate):
+                raise ValueError("config comparison candidate does not match outstanding candidate")
+            if not _engine_matches(comparison.incumbent, before.current_engine_overrides):
+                raise ValueError("config comparison incumbent does not match current configuration")
+            passed = comparison.should_switch
+            canary_reasons = comparison.reasons
         else:
             passed = event.canary_passed
             canary_reasons = []
