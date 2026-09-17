@@ -54,6 +54,17 @@ not to invent a win.
   seeds, and there are no winners to confirm. Re-confirming a negative that is already consistent
   across 3 seeds was judged not worth additional GPU spend.
 
+## Follow-up hardening (same day)
+
+The tpot-only objective that first flagged illusory "winners" has been replaced by a
+fail-closed Pareto comparison (`inferpilot.advisor.compare_configs`): a candidate beats the
+incumbent only if it keeps up with the offered rate AND is no worse on every guarded latency metric
+(ttft_p95, tpot_p95) AND strictly better on at least one — feasibility trumps, ties/trade-offs keep
+the incumbent. Re-running the analysis over this same data with that comparison yields the honest
+verdict directly (no width dominates; all cells are `candidate_infeasible` or `inconclusive_tradeoff`
+across all 3 seeds). The campaign generator was also corrected so search cells differ from the default
+in **only** `max_num_seqs`, removing the confound above for the next run.
+
 ## Bottom line
 
 The first real InferPilot-vs-vLLM-defaults measurement on a 7B model says: **defaults are already

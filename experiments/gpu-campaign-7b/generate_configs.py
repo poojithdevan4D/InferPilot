@@ -31,14 +31,14 @@ PROMPT_SEED = 7007
 NUM_REQUESTS = 256
 WARMUP = 4
 
-# Fixed engine context for the SEARCH cells (Phase 0 validates these load on 24 GB).
+# Engine context for the SEARCH cells. Deliberately IDENTICAL to the default baseline
+# (see _config default family below) except for max_num_seqs, so the crossover is a
+# clean single-variable test — the 2026-09-18 run confounded max_num_seqs with
+# max_num_batched_tokens + chunked_prefill; this corrects that.
 FIXED_ENGINE = dict(
     dtype="auto",
     max_model_len=2048,
-    max_num_batched_tokens=2048,
     gpu_memory_utilization=0.90,
-    kv_cache_dtype="auto",
-    enable_chunked_prefill=True,
     sampler_backend="pytorch",  # matches all prior evidence; avoids FlashInfer JIT risk
     generation_config="vllm",
 )

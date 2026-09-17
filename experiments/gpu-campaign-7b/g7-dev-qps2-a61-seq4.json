@@ -9,11 +9,11 @@
     "dtype": "auto",
     "max_model_len": 2048,
     "max_num_seqs": 4,
-    "max_num_batched_tokens": 2048,
+    "max_num_batched_tokens": null,
     "gpu_memory_utilization": 0.9,
     "kv_cache_dtype": "auto",
     "enable_prefix_caching": null,
-    "enable_chunked_prefill": true,
+    "enable_chunked_prefill": null,
     "sampler_backend": "pytorch",
     "generation_config": "vllm",
     "extra_args": {}
