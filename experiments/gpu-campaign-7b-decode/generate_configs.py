@@ -22,7 +22,9 @@ HERE = Path(__file__).resolve().parent
 
 MODEL = "Qwen/Qwen2.5-7B-Instruct"
 REVISION = "a09a35458c702b33eeacc393d103063234e8bc28"
-RATES = (4,)                     # single stress rate; decode is slow, keep cost bounded
+RATES = (2,)                     # feasible near-capacity rate: the rate-4 probe showed the
+                                 # A10 saturates at ~2.2 req/s on this decode workload
+                                 # (compute-bound), so rate 4 was beyond capacity for all configs.
 DEV_SEEDS = (60, 61, 62)
 HELD_SEEDS = (73, 74, 75)
 WIDTHS = (16, 32, 64, 128)       # caps BELOW the vLLM default (~256), where preemption bites
