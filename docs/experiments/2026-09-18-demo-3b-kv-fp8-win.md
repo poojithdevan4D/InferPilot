@@ -116,3 +116,26 @@ while throughput caps). The recommended ACTION is correct (no config lever), but
 imprecise — it is compute/decode-bound, not idle. A future refinement should add a throughput-
 saturation signal (achieved << offered with stable TTFT) to relabel this as compute_bound. Flagged
 rather than silently rushed.
+
+## Critical caveat: the fp8 win is a GOODPUT-CEILING lever, not a free speedup (2026-09-18)
+
+Sharpest critique of the wins above: they all occurred at TTFT of 24–94 s — overloaded servers.
+Is fp8 a real win, or just "helps a drowning server"? Tested 3B/A10/8k at a lower rate (2 qps):
+
+| 3B/8k @ rate 2 | throughput | ttft_p95 | kv_peak | preemptions | saturated |
+|---|---|---|---|---|---|
+| baseline | 0.55 | 46.5 s | 1.00 | 2 | yes |
+| fp8 | 0.84 (**+52%**) | 20.6 s | 0.57 | 0 | **yes (still)** |
+
+fp8 halves TTFT and adds +52% throughput and clears preemption — but it is **still saturated**: even
+fp8 cannot make rate 2 healthy, because 8k-context 3B saturates below ~1 qps. **There is no healthy
+operating point (for this large-KV workload) where fp8 is a free speedup.** The honest framing:
+
+> **fp8 KV is a goodput-ceiling / overload-resilience lever: it lets the server sustain ~+50% more
+> load before TTFT explodes, and roughly halves TTFT under pressure — it is NOT a low-load speedup.**
+
+This matters for how InferPilot reports value: as **goodput-under-SLO and capacity-per-dollar**, never
+as "faster at current load." (The advisory already frames it this way — `CapacityAdvisory` reports
+goodput + $/token, not raw latency deltas.) A truly *healthy* KV-bound sweet spot (KV full while TTFT
+stays low) would need a many-small-requests workload and is untested; for large-per-request-KV
+workloads the KV-full regime coincides with saturation. Stated plainly rather than over-claimed.
