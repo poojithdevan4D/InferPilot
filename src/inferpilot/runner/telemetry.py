@@ -26,6 +26,10 @@ DEFAULT_INTERVAL_S = 0.25  # 250 ms — lightweight; documented here and in the 
 
 _KV_METRIC = "vllm:kv_cache_usage_perc"
 _KV_RE = re.compile(r"^vllm:kv_cache_usage_perc(?:\{[^}]*\})?\s+([0-9.eE+-]+)", re.MULTILINE)
+# Cumulative counter; window preemptions = last - first observed.
+_PREEMPT_RE = re.compile(
+    r"^vllm:num_preemptions_total(?:\{[^}]*\})?\s+([0-9.eE+-]+)", re.MULTILINE
+)
 
 
 class TelemetrySampler:
@@ -45,6 +49,8 @@ class TelemetrySampler:
         self.gpu_index = gpu_index
 
         self.samples: list[ResourceSample] = []
+        self._preempt_first: Optional[float] = None  # cumulative counter bounds over window
+        self._preempt_last: Optional[float] = None
         self._errors: list[str] = []  # deduped, order-preserving
         self._stop = threading.Event()
         self._thread: Optional[threading.Thread] = None
@@ -91,6 +97,15 @@ class TelemetrySampler:
         except (urllib.error.URLError, OSError, ValueError) as exc:
             self._note_error(f"metrics_fetch_failed: {exc!r}")
             return None
+        preempt = _PREEMPT_RE.search(text)
+        if preempt:
+            try:
+                value = float(preempt.group(1))
+                if self._preempt_first is None:
+                    self._preempt_first = value
+                self._preempt_last = value
+            except ValueError:
+                pass
         match = _KV_RE.search(text)
         if not match:
             self._note_error(f"metric_not_found: {_KV_METRIC}")
@@ -155,6 +170,10 @@ class TelemetrySampler:
         def _mean(xs):
             return sum(xs) / len(xs) if xs else None
 
+        preemptions = None
+        if self._preempt_first is not None and self._preempt_last is not None:
+            preemptions = max(0, int(round(self._preempt_last - self._preempt_first)))
+
         return ResourceTelemetry(
             sample_interval_s=self.interval_s,
             num_samples=len(self.samples),
@@ -163,5 +182,6 @@ class TelemetrySampler:
             gpu_utilization_peak_pct=max(utils) if utils else None,
             kv_cache_usage_mean_perc=_mean(kvs),
             kv_cache_usage_peak_perc=max(kvs) if kvs else None,
+            preemptions_total=preemptions,
             error="; ".join(self._errors) if self._errors else None,
         )

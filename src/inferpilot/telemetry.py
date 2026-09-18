@@ -53,6 +53,16 @@ class ResourceTelemetry(SchemaModel):
     kv_cache_usage_mean_perc: Optional[float] = Field(default=None, ge=0, le=1)
     kv_cache_usage_peak_perc: Optional[float] = Field(default=None, ge=0, le=1)
 
+    preemptions_total: Optional[int] = Field(
+        default=None,
+        ge=0,
+        description=(
+            "Requests preempted during the measured window (delta of "
+            "vllm:num_preemptions_total from /metrics). Rising preemptions signal KV "
+            "pressure and latency being traded for admission. None if unavailable."
+        ),
+    )
+
     error: Optional[str] = Field(
         default=None,
         description="Explicit record of any telemetry-collection failure(s); None if clean.",
