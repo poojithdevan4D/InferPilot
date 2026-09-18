@@ -90,6 +90,20 @@ class FitAnalysis(SchemaModel):
         return self
 
 
+def fetch_footprint(model: str, params_billions: float, *, revision: str = "main") -> ModelFootprint:
+    """Fetch a model's HF config.json and build its ModelFootprint (network call).
+
+    params_billions is supplied by the caller (config.json rarely states it). Raises on
+    network/parse failure so the caller can fall back to an explicit footprint."""
+    import json
+    import urllib.request
+
+    url = f"https://huggingface.co/{model}/raw/{revision}/config.json"
+    with urllib.request.urlopen(url, timeout=10.0) as resp:  # noqa: S310
+        config = json.loads(resp.read().decode("utf-8"))
+    return footprint_from_hf_config(model, params_billions, config)
+
+
 def footprint_from_hf_config(model: str, params_billions: float, config: dict) -> ModelFootprint:
     """Build a ModelFootprint from a model's HF config.json dict (+ known param count).
 
