@@ -161,3 +161,33 @@ gate should use canonical-task accuracy and/or teacher-forced KL of next-token d
 the cascade problem); (b) this tested short-context QA — the documented fp8 failure mode is
 long-context (>~100k) retrieval-accuracy collapse, which was NOT tested here, so the
 `long_context_accuracy_verified` precondition on the fp8 lever remains mandatory.
+
+## Teacher-forced KL: fp8 is task-lossless (short QA) but NOT distribution-lossless (2026-09-19)
+
+Measured teacher-forced per-position KL (fp8-KV vs bf16-KV) on Qwen2.5-3B over a ~6-passage prose
+corpus, with a bf16-vs-bf16 noise floor:
+
+| signal | value |
+|---|---|
+| bf16 noise floor (mean KL) | ~0.0 (deterministic, enforce_eager) |
+| fp8 mean KL | > 0.01 (above the distribution-lossless threshold) |
+| **fp8 p99 KL** | **0.39** (damage concentrated on a minority of positions) |
+| KL gate | **FAIL** (mean & p99 above budget) |
+
+Combined with the earlier measurements, the honest three-way verdict:
+- greedy token agreement 12% → outputs *reworded* (drift only, not a quality signal);
+- factual QA → **0/16 regressions → task-lossless on short factual tasks**;
+- teacher-forced KL → **NOT distribution-lossless**; the high p99 means the shift concentrates on some
+  positions — the classic long-context / hard-token risk signature.
+
+**So fp8's +40–52% throughput comes with a real distributional shift that is benign on easy tasks but a
+yellow flag for demanding ones.** This is exactly why InferPilot's gate is two-tier: KL (fail here)
+refuses to certify fp8 as "lossless" and **escalates to Tier-2 (needle-in-haystack / task accuracy)**
+before an apply on long-context or reasoning workloads. The system does not rubber-stamp the win.
+
+**Measurement caveats (honest):** the KL is a **top-k (k=20) renormalised approximation** (vLLM
+`prompt_logprobs`, not full-vocab logits), on a small corpus, with a ~0 deterministic noise floor — so
+the *magnitude* (0.39 p99) is indicative, not gold; a rigorous number needs full-logit capture and a
+4–16k-token production-domain corpus. The *direction* (fp8 shifts the distribution, concentrated p99) is
+robust and consistent with the 12% token divergence. Needle-in-haystack at max context remains untested
+(the decisive long-context gate) and is the next measurement.

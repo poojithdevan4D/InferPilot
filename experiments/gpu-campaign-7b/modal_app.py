@@ -132,6 +132,136 @@ def quality_probe(model: str, kv_cache_dtype: str, prompts: list, max_tokens: in
     return [by_prompt[p] for p in prompts]
 
 
+@app.function(image=image, gpu=GPU, timeout=1800, volumes={CACHE: hf_cache})
+def kl_probe(model: str, kv_cache_dtype: str, corpus: list, top_k: int = 20) -> list:
+    """Teacher-forced: return per-position top-k {token_id: logprob} for each corpus passage.
+
+    Uses vLLM prompt_logprobs (top-k is an approximation of the full-vocab distribution — full
+    KL would need raw logits). max_tokens=1 since only prompt-position distributions are needed."""
+    import os as _os
+
+    _os.environ.setdefault("HF_HOME", CACHE)
+    from vllm import LLM, SamplingParams
+
+    llm = LLM(model=model, kv_cache_dtype=kv_cache_dtype, max_model_len=4096,
+              gpu_memory_utilization=0.90, dtype="auto", enforce_eager=True)
+    outs = llm.generate(corpus, SamplingParams(temperature=0.0, max_tokens=1, prompt_logprobs=top_k))
+    by_prompt = {}
+    for o in outs:
+        positions = []
+        for pos in (o.prompt_logprobs or []):
+            if pos is None:
+                continue
+            positions.append({int(tid): float(lp.logprob) for tid, lp in pos.items()})
+        by_prompt[o.prompt] = positions
+    return [by_prompt[p] for p in corpus]
+
+
+@app.local_entrypoint()
+def kl_quality(model: str = "Qwen/Qwen2.5-3B-Instruct"):
+    """Teacher-forced KL gate: fp8-KV vs bf16-KV, with a bf16-vs-bf16 noise floor.
+
+    modal run experiments/gpu-campaign-7b/modal_app.py::kl_quality
+    """
+    import json
+    import math
+    import sys
+    from pathlib import Path
+
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
+    from inferpilot import KLQualitySpec, evaluate_kl_quality
+
+    corpus = _KL_CORPUS
+    a = kl_probe.remote(model, "auto", corpus)   # bf16 run A
+    b = kl_probe.remote(model, "auto", corpus)   # bf16 run B (noise floor)
+    f = kl_probe.remote(model, "fp8", corpus)    # fp8 run
+
+    def per_pos_kl(P_pos, Q_pos):
+        # KL(P||Q) over P's top-k support, both renormalised on that shared support.
+        if not P_pos or not Q_pos:
+            return None
+        q_floor_lp = min(Q_pos.values()) - math.log(2.0)  # slightly below fp8's smallest seen logprob
+        support = list(P_pos.keys())
+        p_raw = [math.exp(P_pos[t]) for t in support]
+        q_raw = [math.exp(Q_pos.get(t, q_floor_lp)) for t in support]
+        zp, zq = sum(p_raw), sum(q_raw)
+        if zp <= 0 or zq <= 0:
+            return None
+        kl = 0.0
+        for pr, qr in zip(p_raw, q_raw):
+            p, q = pr / zp, qr / zq
+            if p > 0 and q > 0:
+                kl += p * math.log(p / q)
+        return max(0.0, kl)
+
+    def corpus_kls(P, Q):
+        kls = []
+        for pp, qp in zip(P, Q):
+            for P_pos, Q_pos in zip(pp, qp):
+                k = per_pos_kl(P_pos, Q_pos)
+                if k is not None:
+                    kls.append(k)
+        return kls
+
+    fp8_kls = corpus_kls(a, f)
+    floor_kls = corpus_kls(a, b)
+
+    def mean(xs):
+        return sum(xs) / len(xs) if xs else 0.0
+
+    def p99(xs):
+        return sorted(xs)[min(len(xs) - 1, int(0.99 * (len(xs) - 1)))] if xs else 0.0
+
+    spec = KLQualitySpec(min_tokens=len(fp8_kls) or 1)  # demo corpus; production wants 4-16k
+    gate = evaluate_kl_quality(spec, tokens_compared=len(fp8_kls),
+                               mean_kl=mean(fp8_kls), p99_kl=p99(fp8_kls),
+                               noise_floor_kl=mean(floor_kls))
+    print(json.dumps({
+        "model": model, "tokens_compared": len(fp8_kls),
+        "fp8_mean_kl": round(mean(fp8_kls), 5), "fp8_p99_kl": round(p99(fp8_kls), 5),
+        "bf16_noise_floor_mean_kl": round(mean(floor_kls), 5),
+        "passed": gate.passed, "reasons": gate.reasons,
+    }, indent=2))
+
+
+_KL_CORPUS = [
+    ("Photosynthesis is the process by which green plants, algae, and some bacteria convert light "
+     "energy into chemical energy stored in glucose. In the chloroplasts, chlorophyll absorbs photons, "
+     "exciting electrons that drive the light-dependent reactions, splitting water and releasing oxygen. "
+     "The resulting ATP and NADPH power the Calvin cycle, which fixes carbon dioxide into sugars. This "
+     "process underpins nearly all life on Earth, forming the base of the food chain and regulating "
+     "atmospheric oxygen and carbon dioxide over geological timescales."),
+    ("The French Revolution began in 1789 amid financial crisis, food scarcity, and resentment of the "
+     "aristocracy and monarchy. The storming of the Bastille became its symbol. The Declaration of the "
+     "Rights of Man proclaimed liberty and equality, but the Revolution descended into the Terror under "
+     "Robespierre, with mass executions by guillotine. It ended the absolute monarchy, reshaped European "
+     "politics, and eventually gave rise to Napoleon Bonaparte, whose wars spread revolutionary ideals."),
+    ("A transformer neural network processes sequences using self-attention, which lets each token attend "
+     "to every other token to build context-aware representations. Queries, keys, and values are computed "
+     "by learned projections; attention weights come from scaled dot products of queries and keys. "
+     "Multiple attention heads capture different relationships in parallel. Position information is added "
+     "via positional encodings. Feed-forward layers and residual connections with normalization complete "
+     "each block, and stacking many blocks yields the deep models behind modern language systems."),
+    ("Plate tectonics describes the slow motion of rigid plates over the ductile asthenosphere. At "
+     "divergent boundaries, magma rises to form new crust; at convergent boundaries, one plate subducts "
+     "beneath another, building mountains and triggering earthquakes and volcanoes; at transform "
+     "boundaries, plates slide past each other. This framework explains the distribution of earthquakes, "
+     "the shapes of continents, the Atlantic's widening, and the recycling of the ocean floor over "
+     "hundreds of millions of years."),
+    ("RSA public-key cryptography relies on the difficulty of factoring large composite numbers. A user "
+     "generates two large primes, multiplies them to form a modulus, and derives a public exponent and a "
+     "private exponent. Messages encrypted with the public key can only be decrypted with the private "
+     "key. Its security rests on the gap between easy multiplication and hard factorization. RSA is used "
+     "for secure key exchange and digital signatures, though large key sizes are now required as "
+     "computation has grown cheaper."),
+    ("Black holes form when massive stars exhaust their nuclear fuel and collapse under gravity beyond "
+     "the point where any known force can halt them. The event horizon marks the boundary from which not "
+     "even light escapes. Near the singularity, spacetime curvature grows without bound. Hawking showed "
+     "that quantum effects near the horizon cause black holes to radiate faintly and slowly evaporate. "
+     "Supermassive black holes anchor the centers of galaxies and influence their formation and evolution."),
+]
+
+
 @app.local_entrypoint()
 def quality_qa(model: str = "Qwen/Qwen2.5-3B-Instruct"):
     """Measure ACTUAL quality: does fp8 KV still answer factual questions correctly vs bf16?
