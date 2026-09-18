@@ -29,8 +29,11 @@ from .deployment import (
     DeploymentOption,
     FitAnalysis,
     ModelFootprint,
+    ScaleRecommendation,
     analyze_fit,
+    footprint_from_hf_config,
     recommend_deployment,
+    recommend_scale,
 )
 from .diagnosis import BottleneckDiagnosis, diagnose
 from .saturation import SaturationReport, detect_saturation
@@ -53,6 +56,9 @@ __all__ = [
     "analyze_fit",
     "DeploymentOption",
     "recommend_deployment",
+    "ScaleRecommendation",
+    "recommend_scale",
+    "footprint_from_hf_config",
     "ExperimentConfig",
     "EngineConfig",
     "SamplerBackend",

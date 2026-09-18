@@ -90,6 +90,22 @@ class FitAnalysis(SchemaModel):
         return self
 
 
+def footprint_from_hf_config(model: str, params_billions: float, config: dict) -> ModelFootprint:
+    """Build a ModelFootprint from a model's HF config.json dict (+ known param count).
+
+    head_dim falls back to hidden_size / num_attention_heads when absent (Qwen-style)."""
+    layers = config["num_hidden_layers"]
+    kv_heads = config.get("num_key_value_heads") or config["num_attention_heads"]
+    head_dim = config.get("head_dim") or (config["hidden_size"] // config["num_attention_heads"])
+    dtype = {"bfloat16": "bf16", "float16": "fp16", "float32": "fp32"}.get(
+        config.get("torch_dtype", "bfloat16"), "bf16"
+    )
+    return ModelFootprint(
+        model=model, params_billions=params_billions, num_layers=layers,
+        num_kv_heads=kv_heads, head_dim=head_dim, weight_dtype=dtype,
+    )
+
+
 class DeploymentOption(SchemaModel):
     """A fitting deployment shape + its hourly cost, for ranking. Embeds a self-validating
     FitAnalysis; throughput-under-SLO still requires canary verification (fit ⇒ can HOLD the
@@ -131,6 +147,56 @@ def recommend_deployment(
                 if fit.fits and fit.max_concurrent_requests >= required_concurrency:
                     options.append(DeploymentOption(fit=fit, hourly_usd=prices[gpu] * tp))
     return sorted(options, key=lambda o: (o.hourly_usd, o.fit.tensor_parallel))
+
+
+class ScaleRecommendation(SchemaModel):
+    """Self-validating structural recommendation for a scale-out decision."""
+
+    footprint: ModelFootprint
+    context_tokens: int = Field(gt=0)
+    required_concurrency: int = Field(ge=1)
+    candidate_gpus: Optional[list[str]] = None
+    options: list[DeploymentOption]
+    cheapest: Optional[DeploymentOption] = None
+
+    @model_validator(mode="after")
+    def _check(self) -> "ScaleRecommendation":
+        expected = recommend_deployment(
+            self.footprint, context_tokens=self.context_tokens,
+            required_concurrency=self.required_concurrency, candidate_gpus=self.candidate_gpus,
+        )
+        if self.options != expected or self.cheapest != (expected[0] if expected else None):
+            raise ValueError("scale recommendation is inconsistent with the fit physics")
+        return self
+
+
+def recommend_scale(
+    result: "ExperimentResult", footprint: ModelFootprint, target_qps: float,
+    *, candidate_gpus: Optional[list[str]] = None,
+) -> ScaleRecommendation:
+    """From a measured baseline + a target QPS, recommend the cheapest fitting deployment.
+
+    Required concurrency uses the queue-robust decode service time (output_tokens x tpot_p50),
+    not e2e (which an overloaded baseline inflates with queue wait): Little's law on the
+    compute portion. context = prompt + output tokens."""
+    import math
+
+    from .results import ExperimentResult  # noqa: F401 (typing only)
+
+    w, a = result.config.workload, result.aggregates
+    tpot_s = (a.tpot_p50_ms or a.tpot_p95_ms or 0.0) / 1000.0
+    decode_service_s = w.output_tokens * tpot_s
+    required = max(1, math.ceil(target_qps * decode_service_s))
+    context = w.prompt_tokens + w.output_tokens
+    options = recommend_deployment(
+        footprint, context_tokens=context, required_concurrency=required,
+        candidate_gpus=candidate_gpus,
+    )
+    return ScaleRecommendation(
+        footprint=footprint, context_tokens=context, required_concurrency=required,
+        candidate_gpus=candidate_gpus, options=options,
+        cheapest=options[0] if options else None,
+    )
 
 
 def analyze_fit(

@@ -79,3 +79,25 @@ def test_recommend_empty_when_concurrency_impossible() -> None:
     from inferpilot import recommend_deployment
     opts = recommend_deployment(Q14B, context_tokens=100000, required_concurrency=1000)
     assert opts == []
+
+
+def test_footprint_from_hf_config_qwen14b() -> None:
+    from inferpilot import footprint_from_hf_config
+    cfg = {"num_hidden_layers": 48, "num_attention_heads": 40, "num_key_value_heads": 8,
+           "hidden_size": 5120, "head_dim": None, "torch_dtype": "bfloat16"}
+    fp = footprint_from_hf_config("Qwen/Qwen2.5-14B-Instruct", 14.77, cfg)
+    assert fp.num_layers == 48 and fp.num_kv_heads == 8 and fp.head_dim == 128
+    assert fp.weight_dtype == "bf16"
+    assert fp.kv_bytes_per_token("bf16") == Q14B.kv_bytes_per_token("bf16")
+
+
+def test_recommend_scale_self_validates_and_picks_cheapest() -> None:
+    from inferpilot import recommend_scale, ScaleRecommendation
+    from test_capacity_advisory import _result
+    # 14B, decode-heavy, tpot ~40ms, target 8 qps -> required concurrency ~ 8 * (512*0.04)
+    r = _result(gpu_mean=60, kv_peak=0.99, saturating=True, prompt=2048, out=512, tpot=40.0)
+    rec = recommend_scale(r, Q14B, target_qps=1.0)
+    assert rec.required_concurrency >= 1
+    assert ScaleRecommendation.model_validate_json(rec.model_dump_json()) == rec
+    if rec.options:
+        assert rec.cheapest == rec.options[0]
