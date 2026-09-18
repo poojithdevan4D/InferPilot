@@ -26,17 +26,24 @@ from inferpilot.runner.aggregate import compute_aggregates
 
 
 def _result(*, ttft: float, tpot: float, throughput: float, rate: float = 6.0,
-            count: int = 12, seqs: int = 4) -> ExperimentResult:
+            count: int = 12, seqs: int = 4, saturating: bool = False) -> ExperimentResult:
+    """A measured result. ``saturating`` ramps TTFT across arrival order (queue growing)
+    so feasibility (detect_saturation) sees an overloaded server; otherwise TTFT is flat
+    at ``ttft`` (keeps up). ``ttft`` is the p95 either way."""
     out = 32
-    e2e = ttft + (out - 1) * tpot
     duration = count / throughput
+    if saturating:
+        # TTFT rises from ~ttft/3 up to ttft across arrivals -> late/early >> threshold.
+        ttfts = [ttft * (0.3 + 0.7 * i / (count - 1)) for i in range(count)]
+    else:
+        ttfts = [ttft] * count
     meas = [
         RequestMeasurement(
             request_id=str(i), prompt_tokens=128, output_tokens=out,
-            start_time_s=i * 0.1, end_time_s=i * 0.1 + e2e / 1000,
-            ttft_ms=ttft, tpot_ms=tpot, e2e_latency_ms=e2e, success=True,
+            start_time_s=i * 0.1, end_time_s=i * 0.1 + (t + (out - 1) * tpot) / 1000,
+            ttft_ms=t, tpot_ms=tpot, e2e_latency_ms=t + (out - 1) * tpot, success=True,
         )
-        for i in range(count)
+        for i, t in enumerate(ttfts)
     ]
     agg = compute_aggregates(meas, duration).model_copy(update={"gpu_memory_peak_mb": 1024})
     return ExperimentResult(
@@ -81,7 +88,8 @@ def test_illusory_tpot_win_is_rejected_real_campaign_numbers() -> None:
 
 def test_overloaded_candidate_never_wins() -> None:
     incumbent = _result(ttft=178, tpot=42, throughput=5.9)
-    candidate = _result(ttft=30, tpot=32, throughput=0.95)  # great latency but can't keep up
+    # low per-token latency but TTFT ramps upward => queue growing => not keeping up
+    candidate = _result(ttft=30, tpot=32, throughput=0.95, saturating=True)
     cmp = compare_configs(ComparisonSpec(), incumbent, candidate)
     assert cmp.verdict == "candidate_infeasible" and not cmp.should_switch
 
@@ -94,8 +102,8 @@ def test_tie_within_tolerance_keeps_incumbent() -> None:
 
 
 def test_candidate_wins_when_incumbent_overloaded() -> None:
-    incumbent = _result(ttft=214000, tpot=32, throughput=0.95)  # overloaded default
-    candidate = _result(ttft=180, tpot=40, throughput=5.9)      # keeps up, sane latency
+    incumbent = _result(ttft=214000, tpot=32, throughput=0.95, saturating=True)  # default thrashing
+    candidate = _result(ttft=180, tpot=40, throughput=5.9)      # keeps up, stable TTFT
     cmp = compare_configs(ComparisonSpec(), incumbent, candidate)
     assert cmp.verdict == "candidate_dominates" and cmp.should_switch
     assert "incumbent_overloaded" in cmp.reasons

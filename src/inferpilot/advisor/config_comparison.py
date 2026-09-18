@@ -27,6 +27,7 @@ from pydantic import Field, model_validator
 from .._base import SchemaModel
 from ..results import ExperimentResult
 from ..runner.aggregate import compute_aggregates
+from ..saturation import detect_saturation
 
 # lower-is-better latency metrics guarded by the Pareto test
 _GUARDED = ("ttft_p95_ms", "tpot_p95_ms")
@@ -40,9 +41,15 @@ Verdict = Literal[
 
 
 class ComparisonSpec(SchemaModel):
-    comparison_version: Literal["0.1.0"] = "0.1.0"
+    comparison_version: Literal["0.2.0"] = "0.2.0"
     keepup_fraction: float = Field(default=0.95, gt=0, le=1)
     rel_tolerance: float = Field(default=0.02, ge=0, description="Relative noise band.")
+    # Feasibility ("does the server keep up?") is judged by TTFT stability across
+    # arrival order (detect_saturation) — drain-robust, unlike throughput/duration,
+    # which under-reads for long generations. Throughput is only a fallback when
+    # there are too few samples for the saturation signal.
+    saturation_threshold: float = Field(default=1.5, gt=1.0)
+    min_saturation_samples: int = Field(default=8, ge=2)
 
 
 class ConfigComparison(SchemaModel):
@@ -98,8 +105,19 @@ def _same_context(incumbent: ExperimentResult, candidate: ExperimentResult) -> N
         raise ValueError("config comparison requires the same model/hardware/workload context")
 
 
-def _feasible(result: ExperimentResult, rate: float, keepup: float) -> bool:
-    return result.aggregates.throughput_requests_per_s >= keepup * rate
+def _feasible(result: ExperimentResult, rate: float, spec: ComparisonSpec) -> bool:
+    """Keeps up iff TTFT is stable across arrival order (queue not growing).
+
+    Falls back to throughput-vs-rate only when there are too few samples for the
+    saturation signal to be meaningful."""
+    report = detect_saturation(
+        result.measurements,
+        threshold=spec.saturation_threshold,
+        min_samples=spec.min_saturation_samples,
+    )
+    if report.reason == "insufficient_samples":
+        return result.aggregates.throughput_requests_per_s >= spec.keepup_fraction * rate
+    return not report.saturated
 
 
 def _derive(
@@ -112,10 +130,10 @@ def _derive(
 
     rate = candidate.config.workload.request_rate_qps
     reasons: list[str] = []
-    if not _feasible(candidate, rate, spec.keepup_fraction):
+    if not _feasible(candidate, rate, spec):
         reasons.append("candidate_overloaded")
         return "candidate_infeasible", reasons
-    if not _feasible(incumbent, rate, spec.keepup_fraction):
+    if not _feasible(incumbent, rate, spec):
         # Feasibility trumps: a candidate that keeps up beats an overloaded incumbent
         # outright — the incumbent's per-token metric is not a valid competitor.
         reasons.append("incumbent_overloaded")
