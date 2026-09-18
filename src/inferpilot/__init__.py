@@ -40,6 +40,7 @@ from .diagnosis import BottleneckDiagnosis, diagnose
 from .quality import QualityGate, QualitySpec, evaluate_quality, greedy_token_agreement
 from .saturation import SaturationReport, detect_saturation
 from .status import ExperimentStatus, FailureRecord
+from .trace import TraceRequest, WorkloadTrace, load_trace_jsonl, summarize_trace
 from .workload import WorkloadSpec
 
 __version__ = SCHEMA_VERSION
@@ -51,6 +52,10 @@ __all__ = [
     "VersionedSchemaModel",
     "SaturationReport",
     "detect_saturation",
+    "TraceRequest",
+    "WorkloadTrace",
+    "summarize_trace",
+    "load_trace_jsonl",
     "BottleneckDiagnosis",
     "diagnose",
     "QualityGate",
