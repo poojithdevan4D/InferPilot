@@ -24,7 +24,9 @@ from pathlib import Path
 import modal
 
 APP_NAME = "inferpilot-gpu-campaign"
-GPU = "A10G"  # 24 GB; L4 also fine — change here if cheaper/available.
+# GPU is read at import so it must be set BEFORE `modal run` imports this module,
+# e.g. INFERPILOT_GPU=A100-40GB modal run ...::campaign --campaign gpu-campaign-14b-kv
+GPU = os.environ.get("INFERPILOT_GPU", "A10G")
 
 # Resolve the wheel only when running locally (build/deploy). Inside the container
 # this module lives at /root/modal_app.py (no parents[2]) and the package is already

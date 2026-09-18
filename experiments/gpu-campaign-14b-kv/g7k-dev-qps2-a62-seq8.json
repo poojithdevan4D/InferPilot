@@ -1,0 +1,45 @@
+{
+  "schema_version": "0.5.0",
+  "experiment_id": "g7k-dev-qps2-a62-seq8",
+  "name": "g7k-dev-qps2-a62-seq8",
+  "description": "KV-bound Phase-2 crossover development cell.",
+  "engine": {
+    "model": "Qwen/Qwen2.5-14B-Instruct",
+    "revision": "cf98f3b3bbb457ad9e2bb7baf9a0125b6b88caa8",
+    "dtype": "auto",
+    "max_model_len": 3072,
+    "max_num_seqs": 8,
+    "max_num_batched_tokens": null,
+    "gpu_memory_utilization": 0.9,
+    "kv_cache_dtype": "auto",
+    "enable_prefix_caching": null,
+    "enable_chunked_prefill": null,
+    "sampler_backend": "pytorch",
+    "generation_config": "vllm",
+    "extra_args": {}
+  },
+  "workload": {
+    "name": "g7k-dev-qps2",
+    "num_requests": 40,
+    "warmup_requests": 3,
+    "prompt_tokens": 2048,
+    "output_tokens": 512,
+    "request_rate_qps": 2.0,
+    "arrival_pattern": "poisson-v1",
+    "burst_size": null,
+    "max_concurrency": null,
+    "temperature": 0.0,
+    "ignore_eos": true,
+    "seed": 0,
+    "prompt_seed": 7007,
+    "arrival_seed": 62
+  },
+  "slo": null,
+  "seed": 0,
+  "tags": [
+    "gpu-campaign",
+    "qwen2.5-14b",
+    "kv-bound",
+    "development"
+  ]
+}
