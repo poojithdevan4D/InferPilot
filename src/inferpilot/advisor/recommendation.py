@@ -30,6 +30,12 @@ def _action_log(
     ]
     if adv.action == "tune" and diag.lever_preconditions:
         lines.append(f"VERIFY FIRST: {diag.lever_preconditions}.")
+    # Precision-reducing levers (fp8/quantized KV) can silently change outputs -> apply-block
+    # until a QualityGate passes. Never report such a win without a quality check.
+    if adv.action == "tune" and "fp8" in diag.recommended_lever:
+        lines.append("QUALITY GATE: fp8 KV can silently change outputs — apply BLOCKED until a "
+                     "greedy-token-agreement QualityGate passes (evaluate_quality); mandatory on "
+                     "long-context work.")
     if scale is not None and scale.cheapest is not None:
         f = scale.cheapest.fit
         lines.append(

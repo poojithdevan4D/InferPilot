@@ -37,6 +37,7 @@ from .deployment import (
     recommend_scale,
 )
 from .diagnosis import BottleneckDiagnosis, diagnose
+from .quality import QualityGate, QualitySpec, evaluate_quality, greedy_token_agreement
 from .saturation import SaturationReport, detect_saturation
 from .status import ExperimentStatus, FailureRecord
 from .workload import WorkloadSpec
@@ -52,6 +53,10 @@ __all__ = [
     "detect_saturation",
     "BottleneckDiagnosis",
     "diagnose",
+    "QualityGate",
+    "QualitySpec",
+    "evaluate_quality",
+    "greedy_token_agreement",
     "ModelFootprint",
     "FitAnalysis",
     "analyze_fit",
