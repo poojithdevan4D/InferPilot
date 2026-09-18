@@ -9,12 +9,13 @@ from inferpilot.advisor import OptimizationPlan, plan_from_diagnosis
 from inferpilot.diagnosis import BottleneckDiagnosis
 
 
-def _diag(*, gpu, kv, sat):
+def _diag(*, gpu, kv, sat, decode=True):
     from inferpilot.diagnosis import _classify
-    regime, lever, effect = _classify(gpu, kv, sat)
+    regime, lever, pre, effect = _classify(gpu, kv, sat, decode)
     return BottleneckDiagnosis(
         gpu_utilization_mean_pct=gpu, kv_cache_usage_peak_perc=kv, saturated=sat,
-        regime=regime, recommended_lever=lever, predicted_effect=effect,
+        decode_heavy=decode, regime=regime, recommended_lever=lever,
+        lever_preconditions=pre, predicted_effect=effect,
     )
 
 
@@ -31,7 +32,7 @@ def test_kv_capacity_bound_explores_fp8() -> None:
 
 
 def test_underutilized_abstains() -> None:
-    plan = plan_from_diagnosis(_diag(gpu=100, kv=0.02, sat=False))
+    plan = plan_from_diagnosis(_diag(gpu=100, kv=0.5, sat=False))
     assert not plan.should_explore
 
 
