@@ -44,3 +44,32 @@ def test_roundtrip_and_tamper() -> None:
     raw=g.model_dump(mode="json"); raw["passed"]=False
     with pytest.raises(ValidationError, match="inconsistent with its evidence"):
         QualityGate.model_validate(raw)
+
+
+from inferpilot import (KLQualitySpec, NeedleQualitySpec, evaluate_kl_quality, evaluate_needle_quality)
+
+
+def test_kl_gate_passes_below_threshold() -> None:
+    g = evaluate_kl_quality(KLQualitySpec(), tokens_compared=8000, mean_kl=0.006, p99_kl=0.05, noise_floor_kl=0.004)
+    assert g.passed
+
+
+def test_kl_gate_noise_floor_relative() -> None:
+    # mean_kl 0.02 > 0.01 abs, but floor 0.01 * 3 = 0.03 budget -> passes (within noise)
+    g = evaluate_kl_quality(KLQualitySpec(), tokens_compared=8000, mean_kl=0.02, p99_kl=0.05, noise_floor_kl=0.01)
+    assert g.passed
+
+
+def test_kl_gate_fails_high_p99_concentrated_damage() -> None:
+    g = evaluate_kl_quality(KLQualitySpec(), tokens_compared=8000, mean_kl=0.005, p99_kl=1.0, noise_floor_kl=0.002)
+    assert not g.passed and "p99_kl_above_threshold" in g.reasons
+
+
+def test_needle_gate_catches_longctx_regression() -> None:
+    g = evaluate_needle_quality(NeedleQualitySpec(), num_probes=20, candidate_accuracy=0.13, baseline_accuracy=0.91)
+    assert not g.passed and "regressed_vs_baseline" in g.reasons and "accuracy_below_floor" in g.reasons
+
+
+def test_needle_gate_passes_preserved() -> None:
+    g = evaluate_needle_quality(NeedleQualitySpec(), num_probes=20, candidate_accuracy=0.92, baseline_accuracy=0.93)
+    assert g.passed

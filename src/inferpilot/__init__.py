@@ -37,7 +37,11 @@ from .deployment import (
     recommend_scale,
 )
 from .diagnosis import BottleneckDiagnosis, diagnose
-from .quality import QualityGate, QualitySpec, evaluate_quality, greedy_token_agreement
+from .quality import (
+    KLQualityGate, KLQualitySpec, NeedleQualityGate, NeedleQualitySpec,
+    QualityGate, QualitySpec, evaluate_kl_quality, evaluate_needle_quality,
+    evaluate_quality, greedy_token_agreement,
+)
 from .saturation import SaturationReport, detect_saturation
 from .status import ExperimentStatus, FailureRecord
 from .trace import TraceRequest, WorkloadTrace, load_trace_jsonl, summarize_trace
@@ -62,6 +66,12 @@ __all__ = [
     "QualitySpec",
     "evaluate_quality",
     "greedy_token_agreement",
+    "KLQualitySpec",
+    "KLQualityGate",
+    "evaluate_kl_quality",
+    "NeedleQualitySpec",
+    "NeedleQualityGate",
+    "evaluate_needle_quality",
     "ModelFootprint",
     "FitAnalysis",
     "analyze_fit",
