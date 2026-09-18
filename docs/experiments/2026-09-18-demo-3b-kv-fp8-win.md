@@ -50,3 +50,20 @@ pin both the preempting case (→ fp8) and the no-preemption case (→ still com
 One model/GPU/workload; throughput/latency only (no accuracy eval on this run — the workload
 is 8k context, below the ~100k fp8 danger zone, but a production apply MUST run the KL/accuracy
 gate). The win is real and mechanistic; generality across models/hardware is future work.
+
+## Confirmation on 14B (preemption capture re-run, 2026-09-18)
+
+Re-ran 14B/A100-40GB default vs fp8 with the preemption counter now captured:
+
+| 14B | throughput | ttft_p95 | tpot_p95 | kv_peak | preemptions |
+|---|---|---|---|---|---|
+| default | 0.51 | 39.4 s | 36.0 ms | 1.00 | 4 |
+| fp8 | **0.73 (+43%)** | 24.3 s | 39.6 ms | 1.00 | 4 |
+
+The default now diagnoses `kv_capacity_bound_decode → kv_cache_dtype=fp8` (KV full + preempting),
+which the earlier pre-preemption diagnosis wrongly called `compute_bound`. fp8 gives **+43%**
+throughput and much better TTFT. Mechanism nuance vs 3B: here fp8 doubled effective KV capacity so
+the batch grew (KV refilled to 100%), a **goodput** win (+43% throughput, −38% TTFT) trading a small
+TPOT increase (36→40 ms) — still under a typical 50 ms SLO. Net: fp8 KV is now a confirmed,
+repeatable capacity win in KV-pressured regimes across **two models** (3B +52%, 14B +43%), and the
+preemption-aware diagnosis correctly identifies it in both.
