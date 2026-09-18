@@ -17,6 +17,7 @@ def test_kv_bound_decode_recommends_fp8_with_preconditions() -> None:
     regime, lever, pre, _ = _classify(gpu_mean=60.0, kv_peak=0.99, saturated=True, decode_heavy=True)
     assert regime == "kv_capacity_bound_decode" and lever == "kv_cache_dtype=fp8"
     assert "model_attention_not_sliding_window" in pre and "workload_decode_dominated" in pre
+    assert "long_context_accuracy_verified" in pre  # fp8 silently wrecks long-context accuracy
 
 
 def test_kv_bound_prefill_recommends_lower_batched_tokens() -> None:

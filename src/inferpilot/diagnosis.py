@@ -88,10 +88,14 @@ def _classify(
                 "kv_capacity_bound_decode",
                 "kv_cache_dtype=fp8",
                 ["model_attention_not_sliding_window", "model_head_dim_ne_256",
-                 "workload_decode_dominated"],
+                 "workload_decode_dominated",
+                 "long_context_accuracy_verified"],
                 "KV limits concurrency with GPU headroom; fp8 KV (~54% of BF16 bytes) should "
-                "raise concurrent sequences ~30-50% at similar ITL. CAVEAT: hybrid/sliding-"
-                "window models gain little decode speedup and head_dim=256 can regress prefill",
+                "raise concurrent sequences ~30-50% at similar ITL. CAVEATS: hybrid/sliding-"
+                "window models gain little decode speedup; head_dim=256 can regress prefill; "
+                "and fp8 KV can SILENTLY collapse long-context (>~100k tok) retrieval accuracy "
+                "(e.g. 91%->13% on needle-in-haystack) unless two-level FP32 accumulation is "
+                "used — so a KL-divergence/accuracy check MUST gate apply on long-context work",
             )
         return (
             "kv_capacity_bound_prefill",
