@@ -112,6 +112,112 @@ def cell(config: str, out: str = "runs/gpu-campaign-7b-smoke"):
     }, indent=2))
 
 
+@app.function(image=image, gpu=GPU, timeout=1800, volumes={CACHE: hf_cache})
+def quality_probe(model: str, kv_cache_dtype: str, prompts: list, max_tokens: int = 128) -> list:
+    """Greedy-decode the given prompts offline at a given kv_cache_dtype; return output token-ids.
+
+    Used to compare baseline (bf16 KV) vs fp8 KV outputs on identical prompts (temperature=0),
+    so a throughput win can be checked for silent output drift."""
+    import os as _os
+
+    _os.environ.setdefault("HF_HOME", CACHE)
+    from vllm import LLM, SamplingParams
+
+    llm = LLM(model=model, kv_cache_dtype=kv_cache_dtype, max_model_len=4096,
+              gpu_memory_utilization=0.90, dtype="auto")
+    outs = llm.generate(prompts, SamplingParams(temperature=0.0, max_tokens=max_tokens))
+    # preserve input order; return both token-ids (for agreement) and text (for QA scoring)
+    by_prompt = {o.prompt: {"tokens": list(o.outputs[0].token_ids), "text": o.outputs[0].text}
+                 for o in outs}
+    return [by_prompt[p] for p in prompts]
+
+
+@app.local_entrypoint()
+def quality_qa(model: str = "Qwen/Qwen2.5-3B-Instruct"):
+    """Measure ACTUAL quality: does fp8 KV still answer factual questions correctly vs bf16?
+
+    Canonical-answer task (unlike open-ended generation, exact-match on the answer is meaningful).
+    modal run experiments/gpu-campaign-7b/modal_app.py::quality_qa
+    """
+    import json
+
+    qa = [
+        ("What is the capital of France? Answer in one word.", "paris"),
+        ("What is 17 multiplied by 23? Give only the number.", "391"),
+        ("Who wrote the play Romeo and Juliet? Last name only.", "shakespeare"),
+        ("What is the chemical symbol for gold?", "au"),
+        ("How many continents are there on Earth?", "seven"),
+        ("What planet is known as the Red Planet?", "mars"),
+        ("What is the square root of 144?", "12"),
+        ("In what year did World War II end?", "1945"),
+        ("What is the largest ocean on Earth?", "pacific"),
+        ("What gas do plants absorb from the atmosphere?", "carbon dioxide"),
+        ("What is the freezing point of water in Celsius?", "0"),
+        ("Who painted the Mona Lisa? Last name only.", "vinci"),
+        ("What is the powerhouse of the cell?", "mitochondria"),
+        ("How many sides does a hexagon have?", "6"),
+        ("What is the capital of Japan?", "tokyo"),
+        ("What is 100 divided by 4?", "25"),
+    ]
+    prompts = [q for q, _ in qa]
+    answers = [a for _, a in qa]
+    base = quality_probe.remote(model, "auto", prompts, 48)
+    fp8 = quality_probe.remote(model, "fp8", prompts, 48)
+
+    def score(outs):
+        return [ans in o["text"].strip().lower() for o, ans in zip(outs, answers)]
+
+    b_ok, f_ok = score(base), score(fp8)
+    both = sum(1 for b, f in zip(b_ok, f_ok) if b and f)
+    regressions = [prompts[i] for i in range(len(qa)) if b_ok[i] and not f_ok[i]]
+    print(json.dumps({
+        "model": model, "n": len(qa),
+        "bf16_correct": sum(b_ok), "fp8_correct": sum(f_ok),
+        "fp8_regressions_vs_bf16": len(regressions),
+        "regressed_questions": regressions,
+    }, indent=2))
+
+
+@app.local_entrypoint()
+def quality(model: str = "Qwen/Qwen2.5-3B-Instruct"):
+    """Compare bf16-KV vs fp8-KV greedy outputs on identical prompts; print token agreement.
+
+    modal run experiments/gpu-campaign-7b/modal_app.py::quality
+    """
+    import json
+    import sys
+    from pathlib import Path
+
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
+    from inferpilot import QualitySpec, evaluate_quality
+
+    # 16 fixed, varied, long-ish instruction prompts (identical for both configs)
+    topics = [
+        "the causes of the French Revolution", "how photosynthesis works",
+        "the architecture of a transformer neural network", "the plot of Hamlet",
+        "how vaccines train the immune system", "the economics of inflation",
+        "the theory of plate tectonics", "how a CPU pipeline executes instructions",
+        "the history of the Roman Empire", "how RSA public-key cryptography works",
+        "the water cycle in detail", "the rules and strategy of chess",
+        "how black holes form and evaporate", "the process of protein synthesis",
+        "the causes of the 2008 financial crisis", "how GPS determines position",
+    ]
+    prompts = [
+        f"You are a meticulous teacher. In several detailed paragraphs, explain {t}. "
+        f"Cover the key mechanisms, give concrete examples, and note common misconceptions. "
+        f"Be precise and thorough." for t in topics
+    ]
+    base = quality_probe.remote(model, "auto", prompts, 128)
+    fp8 = quality_probe.remote(model, "fp8", prompts, 128)
+    gate = evaluate_quality(QualitySpec(), [(b["tokens"], f["tokens"]) for b, f in zip(base, fp8)])
+    print(json.dumps({
+        "model": model, "num_prompts": len(prompts),
+        "agreement_rate": round(gate.agreement_rate, 4),
+        "matching": gate.matching_tokens, "total": gate.total_tokens,
+        "passed": gate.passed, "reasons": gate.reasons,
+    }, indent=2))
+
+
 @app.function(image=image, gpu=GPU, timeout=600)
 def probe() -> dict:
     """Cheap environment validation — no model download, no serving."""

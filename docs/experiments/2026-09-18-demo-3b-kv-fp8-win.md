@@ -139,3 +139,25 @@ as "faster at current load." (The advisory already frames it this way — `Capac
 goodput + $/token, not raw latency deltas.) A truly *healthy* KV-bound sweet spot (KV full while TTFT
 stays low) would need a many-small-requests workload and is untested; for large-per-request-KV
 workloads the KV-full regime coincides with saturation. Stated plainly rather than over-claimed.
+
+## Quality: fp8's +52% is phrasing-divergent but correctness-preserving (2026-09-18)
+
+Closed the biggest blind spot — does the fp8 throughput win cost output quality? Two measurements on
+Qwen2.5-3B (bf16 KV vs fp8 KV, greedy, identical prompts):
+
+1. **Open-ended generation, position-wise token agreement: 12%** (248/2048). Looks alarming, but is
+   misleading: greedy generation cascades — one early perturbed logit → different (but often equally
+   valid) continuation. Exact-token-match conflates "different" with "worse"; it is a **drift
+   detector**, not a quality verdict.
+2. **Canonical factual QA (16 questions with known answers): bf16 12/16, fp8 12/16, ZERO regressions.**
+   Despite the phrasing divergence, fp8 preserved actual correctness.
+
+**Conclusion:** on short-context factual tasks, fp8 KV's +40–52% throughput win is **quality-preserving**
+(0 regressions), and the 12% token divergence is rewording, not degradation. This makes the fp8
+recommendation *quality-verified*, not just quality-gated.
+
+**Caveats (kept honest):** (a) exact-token-agreement over-flags open-ended generation — the definitive
+gate should use canonical-task accuracy and/or teacher-forced KL of next-token distributions (avoids
+the cascade problem); (b) this tested short-context QA — the documented fp8 failure mode is
+long-context (>~100k) retrieval-accuracy collapse, which was NOT tested here, so the
+`long_context_accuracy_verified` precondition on the fp8 lever remains mandatory.
