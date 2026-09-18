@@ -53,3 +53,17 @@ def test_report_is_self_validating() -> None:
     raw["regime"] = "compute_bound"
     with pytest.raises(ValidationError, match="inconsistent with its signals"):
         BottleneckDiagnosis.model_validate(raw)
+
+
+def test_preemption_reveals_kv_bound_even_at_full_gpu() -> None:
+    # The 3B/8k demo: GPU 100% + KV full BUT preempting -> recompute waste -> fp8 helps.
+    # (measured: fp8 +52% throughput, KV 100%->71%, 2 preemptions->0)
+    regime, lever, _, _ = _classify(gpu_mean=100.0, kv_peak=1.0, saturated=True,
+                                    decode_heavy=True, preemptions=2)
+    assert regime == "kv_capacity_bound_decode" and lever == "kv_cache_dtype=fp8"
+
+
+def test_full_gpu_no_preemption_stays_compute_bound() -> None:
+    regime, lever, _, _ = _classify(gpu_mean=100.0, kv_peak=1.0, saturated=True,
+                                    decode_heavy=True, preemptions=0)
+    assert regime == "compute_bound" and lever == "none"

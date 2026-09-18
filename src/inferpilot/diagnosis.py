@@ -51,13 +51,18 @@ Regime = Literal[
 
 
 def _classify(
-    gpu_mean: float, kv_peak: float, saturated: bool, decode_heavy: bool
+    gpu_mean: float, kv_peak: float, saturated: bool, decode_heavy: bool,
+    preemptions: Optional[int] = None,
 ) -> tuple[Regime, str, list[str], str]:
     """Pure regime -> (regime, recommended_lever, preconditions, predicted_effect).
 
     Saturation gates a *limiting* bottleneck: a run that keeps up (TTFT stable) is not
-    throughput-bottlenecked. GPU *mean* (sustained) decides compute-pinned. Levers carry
-    preconditions to VERIFY before applying — a diagnostic condition, not a blanket flag."""
+    throughput-bottlenecked. Levers carry preconditions to VERIFY before applying.
+
+    KEY (validated on the 3B/8k demo): GPU mean ~100% does NOT by itself mean compute-bound.
+    If KV is full AND the server is preempting, a chunk of that 100% is WASTED on
+    recompute — relieving KV (fp8) recovers it as real throughput (demo: +52%, KV 100%->71%,
+    2 preemptions->0). So the KV-pressure check must precede the compute-pinned check."""
     if not saturated:
         if gpu_mean < GPU_LOW_PCT and kv_peak < 0.5:
             return (
@@ -74,13 +79,28 @@ def _classify(
             [],
             "server keeps up (TTFT stable); the vLLM default is already adequate here",
         )
+    # KV-pressure recompute waste: relievable by fp8/offload even at ~100% GPU.
+    if kv_peak >= KV_FULL and (preemptions or 0) > 0:
+        return (
+            "kv_capacity_bound_decode",
+            "kv_cache_dtype=fp8",
+            ["model_attention_not_sliding_window", "model_head_dim_ne_256",
+             "long_context_accuracy_verified"],
+            "KV is full and the server is PREEMPTING (recompute waste burning GPU cycles). "
+            "Halving KV bytes (fp8) frees blocks, cuts preemption, and converts wasted "
+            "recompute into throughput — demonstrated +52% on 3B/8k. CAVEATS: hybrid/sliding-"
+            "window models gain little; head_dim=256 can regress prefill; and fp8 KV can "
+            "SILENTLY collapse long-context (>~100k) accuracy unless two-level accumulation "
+            "is used — a KL/accuracy check MUST gate apply on long-context work",
+        )
     if gpu_mean >= GPU_PINNED_PCT:
         return (
             "compute_bound",
             "none",
             [],
-            "GPU is compute/bandwidth-pinned; concurrency levers (fp8 KV, max_num_seqs) "
-            "cannot raise throughput. Needs quantization / smaller model / more GPUs",
+            "GPU is compute/bandwidth-pinned with no KV-preemption waste to reclaim; "
+            "concurrency levers cannot raise throughput. Needs quantization / smaller "
+            "model / more GPUs",
         )
     if kv_peak >= KV_FULL:
         if decode_heavy:
@@ -122,6 +142,7 @@ class BottleneckDiagnosis(SchemaModel):
     kv_cache_usage_peak_perc: float = Field(ge=0)
     saturated: bool
     decode_heavy: bool
+    preemptions: Optional[int] = None
     saturation_growth_ratio: Optional[float] = None
     achieved_throughput_rps: Optional[float] = None
     offered_rate_qps: Optional[float] = None
@@ -134,7 +155,7 @@ class BottleneckDiagnosis(SchemaModel):
     def _check(self) -> "BottleneckDiagnosis":
         regime, lever, preconds, effect = _classify(
             self.gpu_utilization_mean_pct, self.kv_cache_usage_peak_perc,
-            self.saturated, self.decode_heavy,
+            self.saturated, self.decode_heavy, self.preemptions,
         )
         if (self.regime, self.recommended_lever, self.lever_preconditions, self.predicted_effect) != (
             regime, lever, preconds, effect
@@ -152,11 +173,13 @@ def diagnose(result: ExperimentResult) -> BottleneckDiagnosis:
     sat = detect_saturation(result.measurements)
     decode_heavy = w.output_tokens >= w.prompt_tokens  # long outputs, modest inputs
     regime, lever, preconds, effect = _classify(
-        t.gpu_utilization_mean_pct, t.kv_cache_usage_peak_perc, sat.saturated, decode_heavy
+        t.gpu_utilization_mean_pct, t.kv_cache_usage_peak_perc, sat.saturated,
+        decode_heavy, t.preemptions_total,
     )
     return BottleneckDiagnosis(
         gpu_utilization_mean_pct=t.gpu_utilization_mean_pct,
         kv_cache_usage_peak_perc=t.kv_cache_usage_peak_perc,
+        preemptions=t.preemptions_total,
         saturated=sat.saturated,
         decode_heavy=decode_heavy,
         saturation_growth_ratio=sat.growth_ratio,

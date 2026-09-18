@@ -1,0 +1,45 @@
+{
+  "schema_version": "0.5.0",
+  "experiment_id": "demo-3b-baseline",
+  "name": "demo-3b-baseline",
+  "description": "Demo: 3B/A10/8k-ctx/high-concurrency KV-bound regime; baseline vs fp8 (single-variable kv_cache_dtype).",
+  "engine": {
+    "model": "Qwen/Qwen2.5-3B-Instruct",
+    "revision": "aa8e72537993ba99e69dfaafa59ed015b17504d1",
+    "dtype": "auto",
+    "max_model_len": 9216,
+    "max_num_seqs": null,
+    "max_num_batched_tokens": null,
+    "gpu_memory_utilization": 0.9,
+    "kv_cache_dtype": "auto",
+    "enable_prefix_caching": null,
+    "enable_chunked_prefill": null,
+    "sampler_backend": "pytorch",
+    "generation_config": "vllm",
+    "extra_args": {}
+  },
+  "workload": {
+    "name": "demo-3b-8k",
+    "num_requests": 60,
+    "warmup_requests": 4,
+    "prompt_tokens": 7680,
+    "output_tokens": 512,
+    "request_rate_qps": 5.0,
+    "arrival_pattern": "poisson-v1",
+    "burst_size": null,
+    "max_concurrency": null,
+    "temperature": 0.0,
+    "ignore_eos": true,
+    "seed": 0,
+    "prompt_seed": 7007,
+    "arrival_seed": 60
+  },
+  "slo": null,
+  "seed": 0,
+  "tags": [
+    "demo",
+    "qwen2.5-3b",
+    "kv-bound",
+    "8k"
+  ]
+}
