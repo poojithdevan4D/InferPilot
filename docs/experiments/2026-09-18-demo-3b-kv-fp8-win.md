@@ -84,3 +84,22 @@ compute-bound) but with KV full and the server preempting — and fp8 KV yields 
 the winnable regime in every case.** This is a repeatable, mechanistically-grounded law across model
 sizes (3B→14B) and GPUs (A10, A100), not a single-point result. Total Modal spend for the full
 3-model study: a few dollars.
+
+## The negative half: fp8 correctly does NOTHING when there's no preemption (2026-09-18)
+
+To prove the model is right about where fp8 CANNOT help (not just where it can), a compute/decode-
+bound test: 7B / A10 / 512-prompt 128-output / rate 8.
+
+| 7B compute-bound | throughput | ttft_p95 | tpot_p95 | kv_peak | preemptions |
+|---|---|---|---|---|---|
+| default | 5.10 | 1129 ms | 100.8 ms | 0.91 | 0 |
+| fp8 | 5.18 (**+1.7%**) | 1108 ms | 98.0 ms | 0.52 | 0 |
+
+fp8 halved KV usage (0.91→0.52) but throughput barely moved (+1.7%, noise) — because there were **no
+preemptions to reclaim**; the bottleneck is decode compute, not KV capacity. InferPilot's diagnosis
+correctly recommended **no lever** here, and fp8 correctly delivered nothing.
+
+**Key validation:** KV being *near-full* (0.91) is NOT the winnable signal — **preemptions > 0** is.
+The model is now shown correct in BOTH directions: it recommends fp8 exactly when preemption-driven
+recompute waste exists (+40–52%), and abstains when the wall is compute (+1.7%). Two-sided correctness
+is what makes the diagnosis trustworthy rather than a lucky pattern-match.
