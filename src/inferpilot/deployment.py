@@ -27,6 +27,13 @@ GPU_VRAM_GB: dict[str, float] = {
     "A100-40GB": 40.0, "A100-80GB": 80.0, "H100": 80.0, "H200": 141.0,
 }
 
+# Indicative on-demand hourly USD (order-of-magnitude; operator can override). Cost
+# ranking is only as good as these — they are inputs to verify, not ground truth.
+GPU_HOURLY_USD: dict[str, float] = {
+    "L4": 0.80, "A10G": 1.10, "A10": 1.10, "L40S": 1.90,
+    "A100-40GB": 2.10, "A100-80GB": 2.50, "H100": 3.90, "H200": 4.50,
+}
+
 _DTYPE_BYTES = {"fp16": 2.0, "bf16": 2.0, "fp8": 1.0, "int8": 1.0, "fp32": 4.0}
 
 
@@ -81,6 +88,49 @@ class FitAnalysis(SchemaModel):
         ):
             raise ValueError("fit analysis is inconsistent with model/GPU/context arithmetic")
         return self
+
+
+class DeploymentOption(SchemaModel):
+    """A fitting deployment shape + its hourly cost, for ranking. Embeds a self-validating
+    FitAnalysis; throughput-under-SLO still requires canary verification (fit ⇒ can HOLD the
+    working set, not that it MEETS latency)."""
+
+    fit: FitAnalysis
+    hourly_usd: float = Field(gt=0)
+
+
+def recommend_deployment(
+    footprint: ModelFootprint,
+    *,
+    context_tokens: int,
+    required_concurrency: int,
+    candidate_gpus: Optional[list[str]] = None,
+    kv_dtypes: tuple[str, ...] = ("bf16", "fp8"),
+    tp_options: tuple[int, ...] = (1, 2),
+    hourly_usd: Optional[dict[str, float]] = None,
+    gpu_memory_utilization: float = 0.90,
+) -> list[DeploymentOption]:
+    """Rank the deployment shapes that FIT the working set, cheapest first.
+
+    Enumerates (GPU × TP × kv_dtype), keeps those whose KV budget holds
+    ``required_concurrency`` requests at ``context_tokens``, and orders by hourly cost
+    (gpu $/hr × TP). Answers "what is the cheapest hardware that can hold this workload" —
+    the structural recommendation. Decode-throughput must still be canary-verified."""
+    gpus = candidate_gpus if candidate_gpus is not None else list(GPU_VRAM_GB)
+    prices = hourly_usd or GPU_HOURLY_USD
+    options: list[DeploymentOption] = []
+    for gpu in gpus:
+        if gpu not in GPU_VRAM_GB or gpu not in prices:
+            continue
+        for tp in tp_options:
+            for kv in kv_dtypes:
+                fit = analyze_fit(
+                    footprint, gpu, context_tokens=context_tokens, tensor_parallel=tp,
+                    kv_dtype=kv, gpu_memory_utilization=gpu_memory_utilization,
+                )
+                if fit.fits and fit.max_concurrent_requests >= required_concurrency:
+                    options.append(DeploymentOption(fit=fit, hourly_usd=prices[gpu] * tp))
+    return sorted(options, key=lambda o: (o.hourly_usd, o.fit.tensor_parallel))
 
 
 def analyze_fit(

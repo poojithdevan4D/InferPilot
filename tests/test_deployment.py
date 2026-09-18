@@ -58,3 +58,24 @@ def test_fit_is_self_validating() -> None:
     raw["max_concurrent_requests"] = 9999
     with pytest.raises(ValidationError, match="inconsistent with model/GPU/context"):
         FitAnalysis.model_validate(raw)
+
+
+def test_recommend_ranks_fitting_deployments_cheapest_first() -> None:
+    from inferpilot import recommend_deployment
+    # need to hold 16 concurrent 2560-token requests of 14B
+    opts = recommend_deployment(Q14B, context_tokens=2560, required_concurrency=16)
+    assert opts, "expected at least one fitting deployment"
+    # sorted by hourly cost ascending
+    costs = [o.hourly_usd for o in opts]
+    assert costs == sorted(costs)
+    # every option genuinely holds the required concurrency
+    assert all(o.fit.max_concurrent_requests >= 16 for o in opts)
+    # A10G bf16 tp1 cannot appear (14B doesn't even fit); fp8/tp or bigger GPU must
+    assert all(not (o.fit.gpu_name in ("A10G", "A10") and o.fit.tensor_parallel == 1
+                    and o.fit.kv_dtype in ("bf16", "fp16")) for o in opts)
+
+
+def test_recommend_empty_when_concurrency_impossible() -> None:
+    from inferpilot import recommend_deployment
+    opts = recommend_deployment(Q14B, context_tokens=100000, required_concurrency=1000)
+    assert opts == []

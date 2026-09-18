@@ -25,7 +25,13 @@ from .workload_profile import (
 from .telemetry import ResourceSample, ResourceTelemetry
 from .measurements import RequestMeasurement
 from .results import AggregateMetrics, ExperimentResult
-from .deployment import FitAnalysis, ModelFootprint, analyze_fit
+from .deployment import (
+    DeploymentOption,
+    FitAnalysis,
+    ModelFootprint,
+    analyze_fit,
+    recommend_deployment,
+)
 from .diagnosis import BottleneckDiagnosis, diagnose
 from .saturation import SaturationReport, detect_saturation
 from .status import ExperimentStatus, FailureRecord
@@ -45,6 +51,8 @@ __all__ = [
     "ModelFootprint",
     "FitAnalysis",
     "analyze_fit",
+    "DeploymentOption",
+    "recommend_deployment",
     "ExperimentConfig",
     "EngineConfig",
     "SamplerBackend",
