@@ -67,3 +67,20 @@ the batch grew (KV refilled to 100%), a **goodput** win (+43% throughput, −38%
 TPOT increase (36→40 ms) — still under a typical 50 ms SLO. Net: fp8 KV is now a confirmed,
 repeatable capacity win in KV-pressured regimes across **two models** (3B +52%, 14B +43%), and the
 preemption-aware diagnosis correctly identifies it in both.
+
+## Generality: the fp8/preemption law across 3 models × 2 GPUs (2026-09-18)
+
+Same single-variable test (baseline vs fp8 KV) in a KV-pressured regime for three model sizes:
+
+| Model / GPU / context | default KV / preemptions | diagnosis | fp8 throughput gain |
+|---|---|---|---|
+| Qwen2.5-3B / A10 / 8k | 100% / 2 | kv_capacity_bound → fp8 | **+52%** |
+| Qwen2.5-7B / A10 / 4k | 100% / 7 | kv_capacity_bound → fp8 | **+40%** |
+| Qwen2.5-14B / A100-40GB / 2k | 100% / 4 | kv_capacity_bound → fp8 | **+43%** |
+
+In all three, the default runs at GPU ~100% (which the pre-preemption diagnosis wrongly called
+compute-bound) but with KV full and the server preempting — and fp8 KV yields a consistent
+**+40–52%** throughput win with much lower TTFT. The **preemption-aware diagnosis correctly identifies
+the winnable regime in every case.** This is a repeatable, mechanistically-grounded law across model
+sizes (3B→14B) and GPUs (A10, A100), not a single-point result. Total Modal spend for the full
+3-model study: a few dollars.
