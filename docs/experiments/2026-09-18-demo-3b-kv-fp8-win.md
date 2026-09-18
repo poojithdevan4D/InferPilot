@@ -103,3 +103,16 @@ correctly recommended **no lever** here, and fp8 correctly delivered nothing.
 The model is now shown correct in BOTH directions: it recommends fp8 exactly when preemption-driven
 recompute waste exists (+40–52%), and abstains when the wall is compute (+1.7%). Two-sided correctness
 is what makes the diagnosis trustworthy rather than a lucky pattern-match.
+
+## Reproduce + a known limitation (honest)
+
+`scripts/fp8_law_demo.py` reproduces the full result from stored evidence (GPU-free): all four
+cases show the diagnosis's fp8 recommendation matching the measured outcome (4/4 correct).
+
+Known limitation (labeling, not action): the 7B decode-bound case (KV 0.91, GPU 100%, 0 preemptions,
+achieved 5.1 vs 8 offered qps) is labeled `underutilized` because the saturation signal is
+TTFT-stability-based and this server admits fast but is decode-throughput-limited (TTFT stays low
+while throughput caps). The recommended ACTION is correct (no config lever), but the regime LABEL is
+imprecise — it is compute/decode-bound, not idle. A future refinement should add a throughput-
+saturation signal (achieved << offered with stable TTFT) to relabel this as compute_bound. Flagged
+rather than silently rushed.
