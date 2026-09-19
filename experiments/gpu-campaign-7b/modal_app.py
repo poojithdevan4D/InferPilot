@@ -132,6 +132,66 @@ def quality_probe(model: str, kv_cache_dtype: str, prompts: list, max_tokens: in
     return [by_prompt[p] for p in prompts]
 
 
+@app.function(image=image, gpu=GPU, timeout=2400, volumes={CACHE: hf_cache})
+def needle_probe(model: str, kv_cache_dtype: str, depths: list, haystack_sentences: int = 400,
+                 max_model_len: int = 16384) -> list:
+    """Needle-in-haystack retrieval at long context. Insert a secret code at each depth in a
+    long filler haystack, ask for it, return per-depth correctness. Catches the fp8 long-context
+    retrieval collapse that KL is blind to."""
+    import os as _os
+
+    _os.environ.setdefault("HF_HOME", CACHE)
+    from vllm import LLM, SamplingParams
+
+    secret = "84713"
+    needle = f" The magic access code hidden in this document is {secret}. "
+    filler = [
+        f"Sentence {i}: routine administrative notes on logistics, scheduling, and inventory were "
+        f"recorded during the quarterly review of regional operations and supply chains."
+        for i in range(haystack_sentences)
+    ]
+    prompts = []
+    for d in depths:
+        cut = int(len(filler) * d)
+        body = " ".join(filler[:cut]) + needle + " ".join(filler[cut:])
+        prompts.append(body + "\n\nQuestion: What is the magic access code hidden in this document? "
+                              "Answer with only the number.\nAnswer:")
+    llm = LLM(model=model, kv_cache_dtype=kv_cache_dtype, max_model_len=max_model_len,
+              gpu_memory_utilization=0.90, dtype="auto")
+    outs = llm.generate(prompts, SamplingParams(temperature=0.0, max_tokens=12))
+    by_prompt = {o.prompt: (secret in o.outputs[0].text) for o in outs}
+    return [by_prompt[p] for p in prompts]
+
+
+@app.local_entrypoint()
+def needle(model: str = "Qwen/Qwen2.5-3B-Instruct"):
+    """fp8 vs bf16 long-context needle retrieval accuracy.
+
+    modal run experiments/gpu-campaign-7b/modal_app.py::needle
+    """
+    import json
+    import sys
+    from pathlib import Path
+
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
+    from inferpilot import NeedleQualitySpec, evaluate_needle_quality
+
+    depths = [0.1, 0.25, 0.5, 0.75, 0.9]
+    base = needle_probe.remote(model, "auto", depths)
+    fp8 = needle_probe.remote(model, "fp8", depths)
+    b_acc = sum(base) / len(base)
+    f_acc = sum(fp8) / len(fp8)
+    gate = evaluate_needle_quality(NeedleQualitySpec(min_probes=len(depths)),
+                                   num_probes=len(depths), candidate_accuracy=f_acc,
+                                   baseline_accuracy=b_acc)
+    print(json.dumps({
+        "model": model, "depths": depths,
+        "bf16_hits": base, "fp8_hits": fp8,
+        "bf16_accuracy": round(b_acc, 3), "fp8_accuracy": round(f_acc, 3),
+        "passed": gate.passed, "reasons": gate.reasons,
+    }, indent=2))
+
+
 @app.function(image=image, gpu=GPU, timeout=1800, volumes={CACHE: hf_cache})
 def kl_probe(model: str, kv_cache_dtype: str, corpus: list, top_k: int = 20) -> list:
     """Teacher-forced: return per-position top-k {token_id: logprob} for each corpus passage.
