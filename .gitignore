@@ -30,3 +30,9 @@ results/
 runs/
 result-store/
 *.log
+
+# scratch / handoffs / macOS
+DS_Store
+Workflow.txt
+*-handoff.md
+*_handoff/
