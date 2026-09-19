@@ -1,7 +1,8 @@
-"""Minimal SGLang throughput probe: does the fp8/preemption law generalize to a 2nd engine?
+"""Minimal SGLang probe: does the measured fp8 throughput association appear on a second engine?
 
 Loads Qwen2.5-3B under SGLang with bf16 vs fp8 KV cache, drives a KV-pressured long-context
-batch, and reports tokens/s. If fp8 wins by ~40-50% under KV pressure, the law is engine-general.
+batch, and reports tokens/s. This probe does not capture the aligned load or scheduler evidence
+needed to establish a mechanism or validate InferPilot's diagnosis on SGLang.
 
     modal run experiments/sglang-probe/modal_sglang.py::sglang_fp8
 """

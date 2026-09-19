@@ -1,5 +1,12 @@
 # Demo: first real config win (fp8 KV) + a diagnostic-model refinement
 
+> **Historical interpretation notice (2026-09-19):** the numerical measurements in this document
+> remain valid, but its claims that the revised diagnosis was “correct,” predictive, or a law are
+> superseded. The rule was developed after observing these outcomes, and these bundles predate the
+> aligned `LoadEvidence` now required by the advisor. The current code returns `unknown` on them.
+> Treat the fp8/preemption relationship below as a post-hoc mechanism hypothesis. See
+> `docs/blog/when-does-fp8-kv-actually-help.md` and `docs/CRITIQUE-RESPONSE.md` for the current claim.
+
 Qwen2.5-3B on Modal A10G, 8k context (7680 prompt / 512 output), rate 5, 60 requests.
 Single-variable: baseline `kv_cache_dtype=auto` vs `kv_cache_dtype=fp8`. Raw evidence in
 `runs/demo-3b-kv/` (gitignored). ~₹few of Modal spend, staged.
@@ -12,8 +19,8 @@ Single-variable: baseline `kv_cache_dtype=auto` vs `kv_cache_dtype=fp8`. Raw evi
 | fp8 KV | **0.85 req/s (+52%)** | 41.1 s | 119.9 ms | 0.71 | 0 |
 
 fp8 Pareto-dominates the baseline: higher throughput AND lower TTFT AND lower TPOT. This is
-InferPilot's first measured beats-defaults config win — in exactly the regime the physics
-pointed to (small, cheap-to-decode model where KV, not weights, is the pressure).
+InferPilot's first measured beats-defaults config win. The mechanism interpretation below was
+formed after observing the result and must not be read as a preregistered prediction.
 
 ## Mechanism — and why our diagnosis was initially WRONG
 
@@ -24,24 +31,22 @@ preemptions**. The baseline's "100% GPU" included compute **wasted on preemption
 (evict a sequence's KV, recompute it later). fp8 freed KV blocks, eliminated the recompute
 waste, and converted it into real throughput.
 
-So GPU utilization alone does NOT distinguish compute-bound from KV-pressure-bound. The
-discriminator is **KV-full + preemptions > 0**.
+So GPU utilization alone does NOT distinguish compute-bound from KV-pressure-bound. **KV-full plus
+preemptions** became the candidate discriminator to test in later, redesign-native evidence.
 
-## The fix (diagnose → predict → verify → REFINE)
+## The historical heuristic revision (now superseded for diagnosis)
 
-`BottleneckDiagnosis` now checks KV-pressure BEFORE compute-pinned: if KV is full and the
+The first revision of `BottleneckDiagnosis` checked KV-pressure before compute-pinned: if KV was full and the
 server is preempting, it classifies `kv_capacity_bound_decode` and recommends fp8 — even at
 ~100% GPU — because the recompute waste is reclaimable. This is exactly why the preemption
-counter was added as first-class telemetry. Re-run on the real baseline now yields:
-`kv_capacity_bound_decode → kv_cache_dtype=fp8`, matching the measured +52%. Regression tests
-pin both the preempting case (→ fp8) and the no-preemption case (→ still compute_bound).
+counter was added as first-class telemetry. That aggregate-snapshot logic is no longer sufficient:
+the active advisor requires aligned load evidence and returns `unknown` on this legacy baseline.
 
 ## Why this matters
 
-1. **First validated config win**, mechanistically explained, not stumbled into.
-2. **The predictive model self-corrected** from a measured contradiction — the scientific loop
-   working as intended, with the fix grounded in a signal (preemptions) both external reviews
-   independently demanded.
+1. **First measured config win**, with a plausible mechanism to test rather than a validated causal explanation.
+2. **The first model was contradicted by evidence.** Expert review then showed that the post-hoc
+   replacement still inferred too much, motivating the aligned-evidence redesign.
 3. Caveat still enforced: fp8 KV can silently wreck long-context (>~100k) accuracy — the fp8
    recommendation carries `long_context_accuracy_verified` as a hard precondition.
 
@@ -60,19 +65,19 @@ Re-ran 14B/A100-40GB default vs fp8 with the preemption counter now captured:
 | default | 0.51 | 39.4 s | 36.0 ms | 1.00 | 4 |
 | fp8 | **0.73 (+43%)** | 24.3 s | 39.6 ms | 1.00 | 4 |
 
-The default now diagnoses `kv_capacity_bound_decode → kv_cache_dtype=fp8` (KV full + preempting),
-which the earlier pre-preemption diagnosis wrongly called `compute_bound`. fp8 gives **+43%**
+The legacy heuristic labeled the default `kv_capacity_bound_decode` (KV full + preempting), while
+the earlier version called it `compute_bound`. fp8 gives **+43%**
 throughput and much better TTFT. Mechanism nuance vs 3B: here fp8 doubled effective KV capacity so
 the batch grew (KV refilled to 100%), a **goodput** win (+43% throughput, −38% TTFT) trading a small
 TPOT increase (36→40 ms) — still under a typical 50 ms SLO. Net: fp8 KV is now a confirmed,
-repeatable capacity win in KV-pressured regimes across **two models** (3B +52%, 14B +43%), and the
-preemption-aware diagnosis correctly identifies it in both.
+repeatable measured association across **two models** (3B +52%, 14B +43%). These runs do not validate
+the redesigned diagnosis because they lack aligned load evidence.
 
-## Generality: the fp8/preemption law across 3 models × 2 GPUs (2026-09-18)
+## Repeated fp8/preemption association across 3 models × 2 GPUs (2026-09-18)
 
 Same single-variable test (baseline vs fp8 KV) in a KV-pressured regime for three model sizes:
 
-| Model / GPU / context | default KV / preemptions | diagnosis | fp8 throughput gain |
+| Model / GPU / context | default KV / preemptions | legacy heuristic | fp8 throughput gain |
 |---|---|---|---|
 | Qwen2.5-3B / A10 / 8k | 100% / 2 | kv_capacity_bound → fp8 | **+52%** |
 | Qwen2.5-7B / A10 / 4k | 100% / 7 | kv_capacity_bound → fp8 | **+40%** |
@@ -80,12 +85,11 @@ Same single-variable test (baseline vs fp8 KV) in a KV-pressured regime for thre
 
 In all three, the default runs at GPU ~100% (which the pre-preemption diagnosis wrongly called
 compute-bound) but with KV full and the server preempting — and fp8 KV yields a consistent
-**+40–52%** throughput win with much lower TTFT. The **preemption-aware diagnosis correctly identifies
-the winnable regime in every case.** This is a repeatable, mechanistically-grounded law across model
-sizes (3B→14B) and GPUs (A10, A100), not a single-point result. Total Modal spend for the full
+**+40–52%** throughput win with much lower TTFT. This is a repeated empirical association across model
+sizes (3B→14B) and GPUs (A10, A100), not a validated diagnostic law. Total Modal spend for the full
 3-model study: a few dollars.
 
-## The negative half: fp8 correctly does NOTHING when there's no preemption (2026-09-18)
+## The contrasting no-preemption result (2026-09-18)
 
 To prove the model is right about where fp8 CANNOT help (not just where it can), a compute/decode-
 bound test: 7B / A10 / 512-prompt 128-output / rate 8.
@@ -96,18 +100,17 @@ bound test: 7B / A10 / 512-prompt 128-output / rate 8.
 | fp8 | 5.18 (**+1.7%**) | 1108 ms | 98.0 ms | 0.52 | 0 |
 
 fp8 halved KV usage (0.91→0.52) but throughput barely moved (+1.7%, noise) — because there were **no
-preemptions to reclaim**; the bottleneck is decode compute, not KV capacity. InferPilot's diagnosis
-correctly recommended **no lever** here, and fp8 correctly delivered nothing.
+preemptions to reclaim**. That is consistent with the mechanism hypothesis, but this one point does
+not prove either its bottleneck label or the rule's predictive accuracy.
 
-**Key validation:** KV being *near-full* (0.91) is NOT the winnable signal — **preemptions > 0** is.
-The model is now shown correct in BOTH directions: it recommends fp8 exactly when preemption-driven
-recompute waste exists (+40–52%), and abstains when the wall is compute (+1.7%). Two-sided correctness
-is what makes the diagnosis trustworthy rather than a lucky pattern-match.
+**Observed contrast:** KV being *near-full* (0.91) was not sufficient for a material win in this run;
+the positive cases also had preemptions. Held-out evidence is required to distinguish a predictive
+signal from a pattern found in this small matrix.
 
 ## Reproduce + a known limitation (honest)
 
-`scripts/fp8_law_demo.py` reproduces the full result from stored evidence (GPU-free): all four
-cases show the diagnosis's fp8 recommendation matching the measured outcome (4/4 correct).
+`scripts/fp8_law_demo.py` reproduces the measured deltas from stored evidence (GPU-free) and shows the
+current advisor returning `unknown` on all four legacy cases because aligned evidence is absent.
 
 Known limitation (labeling, not action): the 7B decode-bound case (KV 0.91, GPU 100%, 0 preemptions,
 achieved 5.1 vs 8 offered qps) is labeled `underutilized` because the saturation signal is
@@ -154,7 +157,7 @@ Qwen2.5-3B (bf16 KV vs fp8 KV, greedy, identical prompts):
 
 **Conclusion:** on short-context factual tasks, fp8 KV's +40–52% throughput win is **quality-preserving**
 (0 regressions), and the 12% token divergence is rewording, not degradation. This makes the fp8
-recommendation *quality-verified*, not just quality-gated.
+measurement *task-lossless on this small short-QA set*, not generally quality-verified.
 
 **Caveats (kept honest):** (a) exact-token-agreement over-flags open-ended generation — the definitive
 gate should use canonical-task accuracy and/or teacher-forced KL of next-token distributions (avoids
@@ -214,11 +217,9 @@ retrieval through 14k tokens on Qwen2.5-3B.
 | teacher-forced KL | mean >0.01, p99 0.39 | measurable distributional shift (benign so far) |
 | needle @ 14k, 5 depths | fp8 1.00 = bf16 1.00 | long-context retrieval preserved |
 
-**Bottom line:** fp8 KV's +40–52% throughput win is **quality-safe through 14k context** — task-correct
-and retrieval-intact — with a measurable-but-benign distributional shift. The only untested risk is the
-documented >~100k retrieval collapse (needs a bigger GPU / rope-scaled run), which InferPilot's
-`long_context_accuracy_verified` precondition explicitly gates. This is a *measured*, four-way quality
-verification — not a "trust me it's lossless."
+**Bottom line:** no regression was detected by these small factual-QA and 14k retrieval smoke tests,
+but the failed KL gate establishes a real distributional shift. The result is not a general
+“quality-safe” certification; task, model, and longer-context validation remain required.
 
 ## Non-Qwen confirmation: Mistral-7B-v0.3 (2026-09-19)
 
@@ -229,6 +230,7 @@ Different model family, same test (A10, 4k prompt / 512 output, KV-pressured):
 | bf16 | 0.23 | 165 s | 1.00 | 6 | kv_capacity_bound_decode → fp8 |
 | fp8 | 0.32 (**+42%**) | 95 s | 1.00 | 9 | — |
 
-The fp8/preemption law holds on a non-Qwen family (+42%, within the +40–52% band; correctly diagnosed).
-Full validation matrix: Qwen2.5-3B (+52%), 7B (+40%), 14B (+43%), Mistral-7B-v0.3 (+42%) — 2 families,
-2 GPUs (A10/A100); plus SGLang +71% (throughput-only). Not a Qwen-only artifact.
+The measured association also appears on a non-Qwen family (+42%, within the +40–52% band).
+Full exploratory matrix: Qwen2.5-3B (+52%), 7B (+40%), 14B (+43%), Mistral-7B-v0.3 (+42%) — 2 families,
+2 GPUs (A10/A100); plus SGLang +71% (throughput-only). This broadens the observation but does not
+validate the mechanism or the redesigned diagnosis.
