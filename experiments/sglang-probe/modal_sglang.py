@@ -29,7 +29,7 @@ def sglang_throughput(model: str, kv_dtype: str, n: int, prompt_tokens: int, out
     prompt = (filler * ((prompt_tokens // 15) + 1))
     prompts = [prompt + f" Request {i}. Summarize the above." for i in range(n)]
     llm = sgl.Engine(model_path=model, kv_cache_dtype=kv_dtype, mem_fraction_static=0.9,
-                     context_length=prompt_tokens + out_tokens + 256, disable_cuda_graph=True)
+                     context_length=16000, disable_cuda_graph=True)
     t0 = time.monotonic()
     outs = llm.generate(prompts, {"temperature": 0.0, "max_new_tokens": out_tokens})
     dt = time.monotonic() - t0
@@ -42,8 +42,8 @@ def sglang_throughput(model: str, kv_dtype: str, n: int, prompt_tokens: int, out
 @app.local_entrypoint()
 def sglang_fp8(model: str = "Qwen/Qwen2.5-3B-Instruct"):
     import json
-    base = sglang_throughput.remote(model, "auto", 48, 6000, 256)
-    fp8 = sglang_throughput.remote(model, "fp8_e5m2", 48, 6000, 256)
+    base = sglang_throughput.remote(model, "auto", 48, 5000, 256)
+    fp8 = sglang_throughput.remote(model, "fp8_e5m2", 48, 5000, 256)
     gain = (fp8["req_per_s"] / base["req_per_s"] - 1) * 100 if base["req_per_s"] else 0
     print(json.dumps({"engine": "sglang", "bf16": base, "fp8": fp8,
                       "fp8_req_gain_pct": round(gain, 1)}, indent=2))
