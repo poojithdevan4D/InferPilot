@@ -32,7 +32,7 @@ if not WHEELS:
     raise RuntimeError("build InferPilot first: uv build")
 WHEEL = Path(WHEELS[-1])
 
-image = modal.Image.from_registry(IMAGE)
+image = modal.Image.from_registry(IMAGE, add_python="3.12")
 image = image.add_local_file(
     WHEEL,
     f"/wheels/{WHEEL.name}",
@@ -220,4 +220,3 @@ def main(
     print(json.dumps(result["summary"], indent=2))
     if not result["summary"]["passed"]:
         raise SystemExit("semantic canary failed; performance pilot remains blocked")
-
