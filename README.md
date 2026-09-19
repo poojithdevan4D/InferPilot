@@ -1,10 +1,50 @@
 # InferPilot
 
-Autonomous LLM inference-optimization system. Given **Model + Hardware + Workload + SLO**,
-InferPilot should determine, test, and adapt the best way to run that model — treating
-inference tuning as the system's problem rather than the engineer's.
+**A senior LLM-inference engineer, in a box.** Given a measured serving run
+(Model + Hardware + Workload + SLO), InferPilot **diagnoses the bottleneck, tells you whether to
+tune, scale, or leave it alone — with the mechanism and the $/token — and refuses to act where
+physics (or output quality) forbids.** It does in minutes what takes a senior infra engineer days
+of benchmarking, and it won't fish or fool you. Every recommendation is a self-validating,
+tamper-evident, human-readable artifact.
 
-Full vision: [`InferPilot — Shared Project Context.md`](./InferPilot%20%E2%80%94%20Shared%20Project%20Context.md).
+## The headline result (all measured on rented cloud GPUs, reproducible)
+
+**A mechanistic, two-sided law for fp8 KV cache**, validated across **3 models × 2 GPUs**:
+
+| Regime (from telemetry) | InferPilot says | Measured outcome |
+|---|---|---|
+| KV full **+ preempting** (3B/7B/14B) | tune → `kv_cache_dtype=fp8` | **+40–52% throughput** |
+| compute-bound (KV low, no preempt) | keep default — no lever | **+1.7% (correctly nothing)** |
+
+The discriminator is **preemptions**, not GPU utilization (both regimes show GPU ~100%). And the
+fp8 win is **quality-verified** four ways: 0/16 factual-QA regressions, needle-in-haystack 5/5 at
+14k context, benign teacher-forced KL, with the documented >100k risk explicitly gated.
+
+**Cost-to-serve rescue** (`scripts/cost_rescue_demo.py`): a drowning 3B/A10 deployment →
+diagnose → fp8 → **+52% goodput, TTFT −56%, −34% $/token, quality-verified, one flag, zero new
+hardware.**
+
+```bash
+uv run python scripts/cost_rescue_demo.py    # the rescue story, from real evidence
+uv run python scripts/fp8_law_demo.py        # 4/4 diagnosis-vs-measured, GPU-free
+uv run --extra dev pytest -q                 # 430+ self-validating tests
+```
+
+## What it does (the reasoning pipeline)
+
+`detect_saturation` → `BottleneckDiagnosis` → `plan_optimization` (abstain unless winnable) →
+`analyze_fit` / `recommend_scale` (which GPU/TP/precision) → `CapacityAdvisory` (tune/scale/accept +
+$/token) → quality gate (`KLQualityGate` + `NeedleQualityGate`) → `compare_configs` (fail-closed
+Pareto) → `controller` 0.3.0 (apply/rollback). Ingests real traffic via `WorkloadTrace`.
+
+**Honest limits:** validated on Qwen + vLLM + a handful of GPUs; >100k-context fp8 and other engines
+(SGLang/TRT-LLM) untested; a running product (sidecar/service) is future work. Full measured evidence
+in `docs/experiments/`, methodology in `docs/design/`.
+
+---
+
+*Original vision + history below.* Full vision:
+[`InferPilot — Shared Project Context.md`](./InferPilot%20%E2%80%94%20Shared%20Project%20Context.md).
 
 ## Status: Milestone 1 — contracts + first runner slice
 
