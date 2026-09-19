@@ -102,3 +102,27 @@ def load_trace_jsonl(text: str) -> WorkloadTrace:
         output = d.get("output_tokens", d.get("gen_tokens", d.get("output_len", d.get("num_generated_tokens", 0))))
         reqs.append(TraceRequest(arrival_s=float(arrival), prompt_tokens=int(prompt), output_tokens=int(output)))
     return summarize_trace(reqs)
+
+
+def load_trace_v01(text: str) -> WorkloadTrace:
+    """Parse the sanitized InferPilot trace v0.1 schema (schemas/trace-v0.1.schema.json).
+
+    Privacy-safe: rows carry arrival offsets, token counts, latency/status and hashed class
+    labels only -- never prompt/output text, IDs, or raw tenant names. Arrival rate uses all
+    rows; length stats use the counts as given (already clipped at the deployment max on export)."""
+    import json
+
+    reqs: list[TraceRequest] = []
+    for line in text.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        d = json.loads(line)
+        if d.get("trace_version") != "0.1":
+            raise ValueError(f"expected trace_version '0.1', got {d.get('trace_version')!r}")
+        reqs.append(TraceRequest(
+            arrival_s=float(d["arrival_offset_ms"]) / 1000.0,
+            prompt_tokens=int(d["input_tokens"]),
+            output_tokens=int(d["output_tokens"]),
+        ))
+    return summarize_trace(reqs)

@@ -30,3 +30,21 @@ def test_self_validating_tamper_rejected() -> None:
     raw = t.model_dump(mode="json"); raw["request_rate_qps"] = 999.0
     with pytest.raises(ValidationError, match="inconsistent with its requests"):
         WorkloadTrace.model_validate(raw)
+
+
+def test_load_trace_v01_schema() -> None:
+    import json
+    from inferpilot import load_trace_v01
+    rows=[json.dumps({"trace_version":"0.1","request_id":str(i),"arrival_offset_ms":i*200,
+                      "input_tokens":1500,"output_tokens":200,"status":"ok",
+                      "deadline_class":"interactive-500ms-40ms","ttft_ms":300,"e2e_ms":5000}) for i in range(30)]
+    t=load_trace_v01("\n".join(rows))
+    assert t.num_requests==30 and t.prompt_p50==1500 and t.output_p50==200
+    assert abs(t.request_rate_qps-5.0)<0.1  # 200ms spacing = 5 qps
+
+
+def test_load_trace_v01_rejects_wrong_version() -> None:
+    import pytest
+    from inferpilot import load_trace_v01
+    with pytest.raises(ValueError, match="trace_version"):
+        load_trace_v01('{"trace_version":"9.9","arrival_offset_ms":0,"input_tokens":1,"output_tokens":1}')

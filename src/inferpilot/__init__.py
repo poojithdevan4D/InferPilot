@@ -44,7 +44,7 @@ from .quality import (
 )
 from .saturation import SaturationReport, detect_saturation
 from .status import ExperimentStatus, FailureRecord
-from .trace import TraceRequest, WorkloadTrace, load_trace_jsonl, summarize_trace
+from .trace import TraceRequest, WorkloadTrace, load_trace_jsonl, load_trace_v01, summarize_trace
 from .workload import WorkloadSpec
 
 __version__ = SCHEMA_VERSION
@@ -60,6 +60,7 @@ __all__ = [
     "WorkloadTrace",
     "summarize_trace",
     "load_trace_jsonl",
+    "load_trace_v01",
     "BottleneckDiagnosis",
     "diagnose",
     "QualityGate",
