@@ -2,7 +2,8 @@
 
 A lightweight background thread that samples, on a monotonic clock:
 * GPU memory used and GPU utilization via NVML (pynvml), and
-* ``vllm:kv_cache_usage_perc`` scraped from the server's ``/metrics`` endpoint.
+* KV usage, waiting/running request gauges, and the cumulative preemption
+  counter scraped from the server's ``/metrics`` endpoint.
 
 Design constraints:
 * sampling is best-effort — any failure is recorded in the returned
@@ -29,6 +30,12 @@ _KV_RE = re.compile(r"^vllm:kv_cache_usage_perc(?:\{[^}]*\})?\s+([0-9.eE+-]+)", 
 # Cumulative counter; window preemptions = last - first observed.
 _PREEMPT_RE = re.compile(
     r"^vllm:num_preemptions_total(?:\{[^}]*\})?\s+([0-9.eE+-]+)", re.MULTILINE
+)
+_WAITING_RE = re.compile(
+    r"^vllm:num_requests_waiting(?:\{[^}]*\})?\s+([0-9.eE+-]+)", re.MULTILINE
+)
+_RUNNING_RE = re.compile(
+    r"^vllm:num_requests_running(?:\{[^}]*\})?\s+([0-9.eE+-]+)", re.MULTILINE
 )
 
 
@@ -89,38 +96,63 @@ class TelemetrySampler:
         return mem, util
 
     # -- /metrics --------------------------------------------------------
-    def _sample_kv(self) -> Optional[float]:
+    def _sample_metrics(
+        self,
+    ) -> tuple[Optional[float], Optional[float], Optional[int], Optional[int]]:
         url = f"{self.base_url}/metrics"
         try:
             with urllib.request.urlopen(url, timeout=2.0) as resp:  # noqa: S310 (localhost)
                 text = resp.read().decode("utf-8", errors="replace")
         except (urllib.error.URLError, OSError, ValueError) as exc:
             self._note_error(f"metrics_fetch_failed: {exc!r}")
-            return None
+            return None, None, None, None
+        preempt_value = None
         preempt = _PREEMPT_RE.search(text)
         if preempt:
             try:
                 value = float(preempt.group(1))
+                preempt_value = value
                 if self._preempt_first is None:
                     self._preempt_first = value
                 self._preempt_last = value
             except ValueError:
                 pass
+        else:
+            self._note_error("metric_not_found: vllm:num_preemptions_total")
+        queues = []
+        for name, regex in (
+            ("vllm:num_requests_waiting", _WAITING_RE),
+            ("vllm:num_requests_running", _RUNNING_RE),
+        ):
+            queue_match = regex.search(text)
+            if queue_match is None:
+                self._note_error(f"metric_not_found: {name}")
+                queues.append(None)
+                continue
+            try:
+                value = float(queue_match.group(1))
+                queues.append(int(value) if value >= 0 and value.is_integer() else None)
+                if queues[-1] is None:
+                    self._note_error(f"metric_parse_failed: {name}")
+            except ValueError:
+                self._note_error(f"metric_parse_failed: {name}")
+                queues.append(None)
         match = _KV_RE.search(text)
         if not match:
             self._note_error(f"metric_not_found: {_KV_METRIC}")
-            return None
+            return None, preempt_value, queues[0], queues[1]
         try:
-            return float(match.group(1))
+            kv = float(match.group(1))
         except ValueError:
             self._note_error("metric_parse_failed")
-            return None
+            kv = None
+        return kv, preempt_value, queues[0], queues[1]
 
     # -- loop ------------------------------------------------------------
     def _sample_once(self) -> None:
         t = monotonic() - self.t0
         mem, util = self._sample_gpu()
-        kv = self._sample_kv()
+        kv, preemptions, waiting, running = self._sample_metrics()
         try:
             self.samples.append(
                 ResourceSample(
@@ -128,6 +160,9 @@ class TelemetrySampler:
                     gpu_memory_used_mb=mem,
                     gpu_utilization_pct=util,
                     kv_cache_usage_perc=kv,
+                    num_requests_waiting=waiting,
+                    num_requests_running=running,
+                    num_preemptions_total=preemptions,
                 )
             )
         except Exception as exc:  # e.g. an out-of-range value; never fatal

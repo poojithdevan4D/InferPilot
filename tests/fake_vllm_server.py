@@ -55,6 +55,9 @@ class _Handler(BaseHTTPRequestHandler):
                 "# HELP vllm:kv_cache_usage_perc KV-cache usage.\n"
                 "# TYPE vllm:kv_cache_usage_perc gauge\n"
                 f'vllm:kv_cache_usage_perc{{model_name="fake"}} {kv}\n'
+                "vllm:num_requests_waiting 0\n"
+                "vllm:num_requests_running 0\n"
+                "vllm:num_preemptions_total 0\n"
             ).encode()
             self.send_response(200)
             self.send_header("Content-Type", "text/plain; version=0.0.4")

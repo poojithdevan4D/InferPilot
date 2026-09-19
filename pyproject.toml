@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "inferpilot"
 version = "0.1.0"
-description = "Autonomous LLM inference-optimization system — Milestone 1 data contracts."
+description = "Evidence-first benchmarking and diagnosis for LLM inference serving."
 readme = "README.md"
 requires-python = ">=3.10,<3.15"
 license = { text = "MIT" }

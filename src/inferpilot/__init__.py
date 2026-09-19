@@ -1,8 +1,8 @@
-"""InferPilot data contracts (Milestone 1).
+"""Evidence-first benchmarking and diagnosis for LLM inference serving.
 
-Validated, JSON-serializable schemas for the autonomous inference-optimization
-loop. This package intentionally contains *only* the data contracts — no engine
-management, profiling, search, or decision logic yet.
+InferPilot provides strict data contracts, a vLLM benchmark runner, aligned load
+assessment, comparison/search replay, and fail-closed advisory primitives.  It is
+an offline research library, not an autonomous production control plane.
 """
 
 from __future__ import annotations

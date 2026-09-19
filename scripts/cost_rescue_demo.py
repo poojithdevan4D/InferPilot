@@ -1,8 +1,8 @@
-"""Cost-to-serve rescue — the end-to-end InferPilot story on real measured evidence (GPU-free).
+"""Historical cost-to-serve case study on real measured evidence (GPU-free).
 
-A KV-pressured 3B/A10 deployment is drowning (46s TTFT, preempting). InferPilot diagnoses the
-bottleneck, recommends a quality-verified fp8 KV switch, and quantifies the goodput + cost win —
-all from stored measurements. Run: uv run python scripts/cost_rescue_demo.py
+The stored bundle predates aligned load evidence. The current advisor correctly abstains; this
+script reproduces the measured before/after economics without claiming a redesigned diagnosis
+from insufficient telemetry. Run: uv run python scripts/cost_rescue_demo.py
 """
 
 from __future__ import annotations
@@ -45,10 +45,10 @@ def main() -> int:
          f"| KV {base.telemetry.kv_cache_usage_peak_perc:.2f} | preemptions {base.telemetry.preemptions_total}")
     line(f"  cost-to-serve ≈ ${_cost_per_1m(ba.throughput_tokens_per_s):.2f} / 1M output tokens")
 
-    line("\nINFERPILOT DIAGNOSIS:")
-    line(f"  regime = {d.regime}  (GPU {d.gpu_utilization_mean_pct:.0f}% pinned, KV full, PREEMPTING)")
-    line(f"  -> {d.predicted_effect.split('.')[0]}.")
-    line(f"  RECOMMENDATION: {d.recommended_lever}  (verify: {d.lever_preconditions})")
+    line("\nCURRENT FAIL-CLOSED DIAGNOSIS:")
+    line(f"  regime = {d.regime}; recommendation = {d.recommended_lever}")
+    line("  reason: this legacy bundle lacks aligned request/queue/token LoadEvidence")
+    line("  action: collect a redesign-native run; do not infer a bottleneck from snapshots")
 
     line("\nQUALITY GATE (measured, fp8 vs bf16 — required before apply):")
     line("  factual QA: 0/16 regressions (task-lossless)")
@@ -57,7 +57,7 @@ def main() -> int:
 
     gain = (fa.throughput_requests_per_s / ba.throughput_requests_per_s - 1) * 100
     save = (1 - _cost_per_1m(fa.throughput_tokens_per_s) / _cost_per_1m(ba.throughput_tokens_per_s)) * 100
-    line("\nAFTER (fp8 KV, quality-verified):")
+    line("\nAFTER (fp8 KV, measured; quality smoke tests are mixed):")
     line(f"  throughput {fa.throughput_requests_per_s:.2f} req/s (+{gain:.0f}%) | TTFT p95 "
          f"{fa.ttft_p95_ms/1000:.1f}s (-{(1-fa.ttft_p95_ms/ba.ttft_p95_ms)*100:.0f}%) | preemptions "
          f"{fp8.telemetry.preemptions_total}")
@@ -65,8 +65,9 @@ def main() -> int:
          f"(-{save:.0f}%)")
 
     line("\nRESULT:")
-    line(f"  +{gain:.0f}% goodput, TTFT halved, {save:.0f}% lower cost-per-token — quality smoke-tested,")
-    line("  one config flag, zero new hardware. InferPilot found it, explained it, and gated it.")
+    line(f"  measured case study: +{gain:.0f}% goodput, TTFT halved, {save:.0f}% lower cost-per-token.")
+    line("  The association motivated the fp8/preemption hypothesis; it is not retroactive proof")
+    line("  that the current advisor would have selected the change from this legacy bundle.")
     line("=" * 74)
     return 0
 

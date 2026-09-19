@@ -4,6 +4,20 @@ An external principal-engineer review (2026-09-19) audited this repo hard. It wa
 This document records the critique, what we fixed immediately, what we acknowledge as open, and the
 resulting narrowing of scope. Keeping it public is the point.
 
+## Status update: the load-state redesign landed
+
+The original response below is preserved as a historical record. The brittle saturation detector
+called out by the review has since been replaced on the active diagnosis path by aligned
+`LoadEvidence` and a four-state assessment (`healthy`, `near_capacity`, `overloaded`,
+`indeterminate`). New runner results bind request arrivals/exits, useful token demand/delivery, queue
+samples, and preemption deltas to the same measured window; conservation and completeness are checked
+before a load state is named. Missing evidence now causes abstention.
+
+The existing fp8 GPU bundles predate that instrumentation. They remain valid performance
+measurements, but the redesigned advisor intentionally returns `unknown` on them. A preregistered fp8
+held-out protocol exists; redesign-native collection and validation remain open. The other limitations
+below remain applicable unless a later experiment document explicitly closes them.
+
 ## Fixed immediately (this commit)
 
 1. **Reproducibility was broken** (`runs/` gitignored → headline demos couldn't run on a fresh clone).
@@ -35,9 +49,10 @@ resulting narrowing of scope. Keeping it public is the point.
   event count, predict effect size first, hunt counterexamples).
 - **Preemption is treated categorically** (>0). Should be preempted/recompute tokens per useful output
   token, normalized by load.
-- **Saturation detector is brittle** (first-half vs second-half TTFT, hard 1.5×, ignores failed/timed-out
-  requests, no "unknown" state). Real overload that starts before the window, or decode-throughput-bound
-  systems with stable TTFT, are mis-labeled.
+- **Historical saturation detector was brittle** (first-half vs second-half TTFT, hard 1.5×,
+  ignored failed/timed-out requests, no "unknown" state). It remains available only as a clearly
+  labeled legacy trend report; the diagnosis path now requires aligned `LoadEvidence` as described
+  above. Empirical validation of the replacement is still open.
 - **`decode_heavy = output ≥ prompt`** is a crude threshold, not a compute model.
 - **Fit engine is a memory calculator** (fixed 2 GB overhead, no CUDA graphs/fragmentation/kernel
   workspace; ranks by memory-fit + sticker price, not measured throughput). "Fits" ≠ "right-sized".

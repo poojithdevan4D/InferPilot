@@ -1,7 +1,7 @@
 """Resource-telemetry data contracts.
 
-Minimal measured-window telemetry: GPU memory used + GPU utilization (NVML) and
-KV-cache utilization (scraped from the server's Prometheus ``/metrics``). Raw
+Measured-window telemetry: GPU memory/utilization (NVML) plus KV-cache usage,
+request queue gauges, and preemptions (Prometheus ``/metrics``). Raw
 samples are stored in a separate immutable artifact; the derived summary
 (:class:`ResourceTelemetry`) is embedded in the result.
 
@@ -34,6 +34,17 @@ class ResourceSample(SchemaModel):
         ge=0,
         le=1,
         description="vllm:kv_cache_usage_perc gauge (fraction 0..1) from /metrics.",
+    )
+    num_requests_waiting: Optional[int] = Field(
+        default=None, ge=0, description="vLLM waiting-queue gauge at this sample."
+    )
+    num_requests_running: Optional[int] = Field(
+        default=None, ge=0, description="vLLM running-request gauge at this sample."
+    )
+    num_preemptions_total: Optional[float] = Field(
+        default=None,
+        ge=0,
+        description="Cumulative vLLM preemption counter at this sample.",
     )
 
 

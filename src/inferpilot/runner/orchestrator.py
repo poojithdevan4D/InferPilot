@@ -9,6 +9,7 @@ no SLO evaluation, no GPU polling, and no decision logic.
 from __future__ import annotations
 
 import asyncio
+import math
 import platform
 import socket
 import traceback as _tb
@@ -54,6 +55,7 @@ from .server import (
     find_free_port,
 )
 from .telemetry import TelemetrySampler
+from .load_evidence import build_load_evidence, intended_replay_digest
 from .workload_gen import generate_workload
 
 CommandBuilder = Callable[[int], list[str]]
@@ -354,6 +356,38 @@ def run_experiment(
                 aggregates = aggregates.model_copy(
                     update={"gpu_memory_peak_mb": telemetry.peak_gpu_memory_mb}
                 )
+                load_evidence = None
+                # The load window ends at the first complete five-second
+                # boundary covering the last offered arrival, excluding the
+                # post-arrival drain tail from steady-state classification.
+                if (
+                    open_loop
+                    and scheduled_offsets
+                    and len(measured) >= 100
+                    and duration_s >= 30
+                ):
+                    evidence_end = min(
+                        duration_s,
+                        max(30.0, math.ceil(scheduled_offsets[-1] / 5.0) * 5.0),
+                    )
+                    load_evidence = build_load_evidence(
+                        experiment_id=config.experiment_id,
+                        measured_window_t0_s=0.0,
+                        measured_window_end_s=evidence_end,
+                        measurements=measured,
+                        telemetry_samples=samples,
+                        requested_output_tokens=workload.output_tokens,
+                        coverage_complete=len(measured) == workload.num_requests,
+                        # Synthetic open-loop work is stationary by construction;
+                        # successful warm-up excludes engine-startup transients.
+                        steady_state=bool(warmups),
+                        source="runner-measured-window-v1",
+                        replay_sha256=intended_replay_digest(
+                            gen.measured_prompts,
+                            scheduled_offsets,
+                            workload.output_tokens,
+                        ),
+                    )
                 result = ExperimentResult(
                     config=config,
                     environment=environment,
@@ -362,6 +396,7 @@ def run_experiment(
                     aggregates=aggregates,
                     effective_config=effective,
                     telemetry=telemetry,
+                    load_evidence=load_evidence,
                     started_at=started_at,
                     finished_at=_now(),
                 )
