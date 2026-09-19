@@ -35,26 +35,12 @@ def test_parser_reads_help_type_and_labelled_samples() -> None:
 def test_current_public_surface_fails_closed_for_mechanism_study() -> None:
     report = build_metrics_capability_report(BASE, source="fixture")
     assert report.ready is False
-    assert report.missing_required == (
-        "recomputed_token_executions",
-        "scheduled_prefill_tokens",
-        "scheduled_decode_tokens",
-        "effective_batch_size",
-    )
+    assert report.missing_required == ("recomputed_token_executions",)
     assert MetricsCapabilityReport.model_validate_json(report.model_dump_json()) == report
 
 
 def test_instrumented_surface_is_ready() -> None:
-    additions = "\n".join(
-        f"{requirement.acceptable_names[0]} 1"
-        for requirement in FP8_MECHANISM_REQUIREMENTS
-        if requirement.semantic in {
-            "recomputed_token_executions",
-            "scheduled_prefill_tokens",
-            "scheduled_decode_tokens",
-            "effective_batch_size",
-        }
-    )
+    additions = "vllm:recomputed_token_executions_total 1"
     report = build_metrics_capability_report(BASE + additions, source="instrumented-fixture")
     assert report.ready is True
     assert report.missing_required == ()

@@ -97,10 +97,11 @@ class MetricsCapabilityReport(SchemaModel):
         )
 
 
-# The first four names exist on the current vLLM surface.  The mechanism names
-# are deliberately exact and are not claimed to exist upstream: a pinned server
-# must expose them through validated instrumentation before the registered fp8
-# study can call itself ready.
+# The first four names exist on the current vLLM Prometheus surface. Exact
+# recomputation comes from the pinned InferPilot fork. Context/generation token
+# counts and effective batch size are supplied by vLLM's separately gated
+# ``--enable-logging-iteration-details`` stream, not by /metrics, so they do not
+# belong in this endpoint-only capability contract.
 FP8_MECHANISM_REQUIREMENTS: tuple[MetricRequirement, ...] = (
     MetricRequirement(
         semantic="waiting_requests",
@@ -123,27 +124,6 @@ FP8_MECHANISM_REQUIREMENTS: tuple[MetricRequirement, ...] = (
         acceptable_names=(
             "inferpilot:recomputed_token_executions_total",
             "vllm:recomputed_token_executions_total",
-        ),
-    ),
-    MetricRequirement(
-        semantic="scheduled_prefill_tokens",
-        acceptable_names=(
-            "inferpilot:scheduled_prefill_tokens_total",
-            "vllm:scheduled_prefill_tokens_total",
-        ),
-    ),
-    MetricRequirement(
-        semantic="scheduled_decode_tokens",
-        acceptable_names=(
-            "inferpilot:scheduled_decode_tokens_total",
-            "vllm:scheduled_decode_tokens_total",
-        ),
-    ),
-    MetricRequirement(
-        semantic="effective_batch_size",
-        acceptable_names=(
-            "inferpilot:effective_batch_size",
-            "vllm:effective_batch_size",
         ),
     ),
 )

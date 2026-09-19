@@ -62,11 +62,17 @@ instrumentation:
   mechanism_metrics_path: pinned_small_vllm_patch
   upstream_tag: v0.29.0
   upstream_commit: 98dff2a81d747d1dba01a47f939f48c3526d4206
-  fork_commit: MUST_BE_FROZEN_BEFORE_GPU_CANARY
-  patch_diff_sha256: MUST_BE_FROZEN_BEFORE_GPU_CANARY
-  container_image_digest: MUST_BE_FROZEN_BEFORE_GPU_CANARY
+  fork_repository: https://github.com/poojithdevan4D/vllm
+  fork_commit: c7bb7b7308ad174c75609052dd8fc13340dd921c
+  patch_file: vendor/vllm/patches/0001-Add-exact-recomputed-token-execution-metric.patch
+  patch_diff_sha256: 981dc066e73bfa873d640e8f28eefa77fc42b9583d9b42fc3ff4db5a0de9e43a
+  container_image: ghcr.io/poojithdevan4d/vllm-inferpilot
+  container_image_digest: sha256:725769f8279dd5d50fc366fb9183a687e19ea1669ad4cdb2fa3904c29a3d35c1
+  container_base_digest: sha256:082ca6f035279109041ffd3fe0695cb568b29bc580b35c4f297a66a08b216c1b
+  container_recipe_commit: 3f42810338d5912ef8d52167bb4882c67cac8461
+  container_build_run: https://github.com/poojithdevan4D/vllm/actions/runs/35461545044
   iteration_logging_flag: --enable-logging-iteration-details
-  stock_logging_role: cross_check_not_source_of_truth
+  stock_logging_role: source_for_context_generation_and_batch_not_recomputation
   require_capability_ready: true
   require_semantic_canary: true
   recompute_burden_definition: >-

@@ -1,0 +1,279 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: poojithdevan4D <25jcds-pdevan@jgu.edu.in>
+Date: Sat, 19 Sep 2026 19:55:26 +0530
+Subject: [PATCH] Add exact recomputed token execution metric
+
+---
+ tests/v1/core/test_scheduler.py               | 43 +++++++++++++
+ .../metrics/test_recomputed_token_metric.py   | 60 +++++++++++++++++++
+ vllm/v1/core/sched/output.py                  |  4 ++
+ vllm/v1/core/sched/scheduler.py               | 15 +++++
+ vllm/v1/metrics/loggers.py                    | 14 +++++
+ vllm/v1/metrics/stats.py                      |  1 +
+ vllm/v1/request.py                            |  5 ++
+ 7 files changed, 142 insertions(+)
+ create mode 100644 tests/v1/metrics/test_recomputed_token_metric.py
+
+diff --git a/tests/v1/core/test_scheduler.py b/tests/v1/core/test_scheduler.py
+index c630abe4f..1417e2c60 100644
+--- a/tests/v1/core/test_scheduler.py
++++ b/tests/v1/core/test_scheduler.py
+@@ -1197,6 +1197,49 @@ def test_preemption_re_records_prefix_cache_query():
+     assert stats.preempted_requests == 1
+ 
+ 
++def test_preemption_counts_exact_recomputed_token_executions():
++    scheduler = create_scheduler(enable_prefix_caching=False)
++    request = create_requests(num_requests=1, num_tokens=8)[0]
++    scheduler.add_request(request)
++
++    first = scheduler.schedule()
++    assert first.num_recomputed_tokens == 0
++    scheduler.update_from_output(
++        first,
++        ModelRunnerOutput(
++            req_ids=[request.request_id],
++            req_id_to_index={request.request_id: 0},
++            sampled_token_ids=[[1000]],
++            logprobs=None,
++            prompt_logprobs_dict={},
++            pooler_output=[],
++        ),
++    )
++
++    # Eight positions completed before preemption. The resumed step schedules
++    # those eight again plus one new position, so only eight are recomputation.
++    scheduler.running.remove(request)
++    scheduler._preempt_request(request, 0.0)
++    resumed = scheduler.schedule()
++    assert resumed.num_scheduled_tokens[request.request_id] == 9
++    assert resumed.num_recomputed_tokens == 8
++
++    outputs = scheduler.update_from_output(
++        resumed,
++        ModelRunnerOutput(
++            req_ids=[request.request_id],
++            req_id_to_index={request.request_id: 0},
++            sampled_token_ids=[[1001]],
++            logprobs=None,
++            prompt_logprobs_dict={},
++            pooler_output=[],
++        ),
++    )
++    stats = outputs[request.client_index].scheduler_stats
++    assert stats is not None
++    assert stats.num_recomputed_tokens == 8
++
++
+ def test_prefix_cache_stats_not_recorded_when_caching_disabled():
+     """With prefix caching off there is no local lookup, so admitting a request
+     records no phantom miss."""
+diff --git a/tests/v1/metrics/test_recomputed_token_metric.py b/tests/v1/metrics/test_recomputed_token_metric.py
+new file mode 100644
+index 000000000..4a1e8d921
+--- /dev/null
++++ b/tests/v1/metrics/test_recomputed_token_metric.py
+@@ -0,0 +1,60 @@
++# SPDX-License-Identifier: Apache-2.0
++# SPDX-FileCopyrightText: Copyright contributors to the vLLM project
++
++from types import SimpleNamespace
++
++import pytest
++from prometheus_client import generate_latest
++
++from vllm.v1.metrics.loggers import PrometheusStatLogger
++from vllm.v1.metrics.stats import SchedulerStats
++
++pytestmark = pytest.mark.cpu_test
++
++
++class _NoopPrometheusAdapter:
++    def __init__(self, *args, **kwargs):
++        pass
++
++    def observe(self, *args, **kwargs):
++        pass
++
++
++class _FakeCacheConfig:
++    num_gpu_blocks = 1
++
++    def metrics_info(self) -> dict[str, str]:
++        return {"cache_dtype": "auto"}
++
++
++class _TestPrometheusStatLogger(PrometheusStatLogger):
++    _spec_decoding_cls = _NoopPrometheusAdapter
++    _kv_connector_cls = _NoopPrometheusAdapter
++    _perf_metrics_cls = _NoopPrometheusAdapter
++
++
++def test_recomputed_token_counter_is_exposed_and_exact():
++    config = SimpleNamespace(
++        model_config=SimpleNamespace(
++            served_model_name="fake",
++            max_model_len=128,
++            is_diffusion=False,
++        ),
++        observability_config=SimpleNamespace(
++            show_hidden_metrics=False,
++            kv_cache_metrics=False,
++        ),
++        speculative_config=None,
++        lora_config=None,
++        cache_config=_FakeCacheConfig(),
++    )
++    logger = _TestPrometheusStatLogger(config)
++
++    logger.record(SchedulerStats(num_recomputed_tokens=8), None)
++    logger.record(SchedulerStats(num_recomputed_tokens=9), None)
++
++    exposition = generate_latest().decode()
++    assert (
++        'vllm:recomputed_token_executions_total{engine="0",model_name="fake"} 17.0'
++        in exposition
++    )
+diff --git a/vllm/v1/core/sched/output.py b/vllm/v1/core/sched/output.py
+index c9d969cd3..9ab65b9d8 100644
+--- a/vllm/v1/core/sched/output.py
++++ b/vllm/v1/core/sched/output.py
+@@ -252,6 +252,9 @@ class SchedulerOutput:
+     # freed from the encoder cache.
+     free_encoder_mm_hashes: list[str]
+ 
++    # Token positions scheduled again after a preemption in this step.
++    num_recomputed_tokens: int = 0
++
+     scheduled_encoder_input_stats: ScheduledEncoderInputStats | None = None
+ 
+     # Request IDs that are preempted in this step.
+@@ -302,6 +305,7 @@ class SchedulerOutput:
+             scheduled_cached_reqs=CachedRequestData.make_empty(),
+             num_scheduled_tokens={},
+             total_num_scheduled_tokens=0,
++            num_recomputed_tokens=0,
+             scheduled_spec_decode_tokens={},
+             scheduled_encoder_inputs={},
+             num_common_prefix_blocks=[],
+diff --git a/vllm/v1/core/sched/scheduler.py b/vllm/v1/core/sched/scheduler.py
+index 83ed59799..84c4d9f0f 100644
+--- a/vllm/v1/core/sched/scheduler.py
++++ b/vllm/v1/core/sched/scheduler.py
+@@ -1337,6 +1337,7 @@ class Scheduler(SchedulerInterface):
+             scheduled_cached_reqs=cached_reqs_data,
+             num_scheduled_tokens=num_scheduled_tokens,
+             total_num_scheduled_tokens=total_num_scheduled_tokens,
++            num_recomputed_tokens=0,
+             scheduled_spec_decode_tokens=scheduled_spec_decode_tokens,
+             scheduled_encoder_inputs=scheduled_encoder_inputs,
+             scheduled_encoder_input_stats=scheduled_encoder_input_stats,
+@@ -1422,6 +1423,9 @@ class Scheduler(SchedulerInterface):
+         self.encoder_cache_manager.free(request)
+         self._inflight_prefills.discard(request)
+         request.status = RequestStatus.PREEMPTED
++        request.recompute_token_frontier = max(
++            request.recompute_token_frontier, request.num_computed_tokens
++        )
+         request.num_computed_tokens = 0
+         if request.spec_token_ids:
+             request.spec_token_ids = []
+@@ -1458,6 +1462,14 @@ class Scheduler(SchedulerInterface):
+         num_scheduled_tokens = scheduler_output.num_scheduled_tokens
+         for req_id, num_scheduled_token in num_scheduled_tokens.items():
+             request = self.requests[req_id]
++            scheduler_output.num_recomputed_tokens += max(
++                min(
++                    request.num_computed_tokens + num_scheduled_token,
++                    request.recompute_token_frontier,
++                )
++                - request.num_computed_tokens,
++                0,
++            )
+             request.num_computed_tokens += num_scheduled_token
+             request.num_in_flight_tokens += num_scheduled_token
+             if self.defer_block_free:
+@@ -2212,6 +2224,7 @@ class Scheduler(SchedulerInterface):
+                 kv_connector_stats,
+                 cudagraph_stats,
+                 perf_stats,
++                scheduler_output.num_recomputed_tokens,
+             )
+         ) is not None:
+             # Return stats to only one of the front-ends.
+@@ -2679,6 +2692,7 @@ class Scheduler(SchedulerInterface):
+         kv_connector_stats: KVConnectorStats | None = None,
+         cudagraph_stats: CUDAGraphStat | None = None,
+         perf_stats: PerfStats | None = None,
++        num_recomputed_tokens: int = 0,
+     ) -> SchedulerStats | None:
+         if not self.log_stats:
+             return None
+@@ -2702,6 +2716,7 @@ class Scheduler(SchedulerInterface):
+             num_waiting_reqs=len(self.waiting),
+             num_skipped_waiting_reqs=len(self.skipped_waiting),
+             kv_cache_usage=self.kv_cache_manager.usage,
++            num_recomputed_tokens=num_recomputed_tokens,
+             prefix_cache_stats=prefix_cache_stats,
+             connector_prefix_cache_stats=connector_prefix_cache_stats,
+             kv_cache_eviction_events=eviction_events,
+diff --git a/vllm/v1/metrics/loggers.py b/vllm/v1/metrics/loggers.py
+index 692106cf3..fb2356e94 100644
+--- a/vllm/v1/metrics/loggers.py
++++ b/vllm/v1/metrics/loggers.py
+@@ -667,6 +667,17 @@ class PrometheusStatLogger(AggregateStatLoggerBase):
+             counter_num_preempted_reqs, per_engine_labelvalues
+         )
+ 
++        counter_recomputed_token_executions = self._counter_cls(
++            name="vllm:recomputed_token_executions",
++            documentation=(
++                "Cumulative token positions executed again after preemption."
++            ),
++            labelnames=labelnames,
++        )
++        self.counter_recomputed_token_executions = create_metric_per_engine(
++            counter_recomputed_token_executions, per_engine_labelvalues
++        )
++
+         counter_prompt_tokens = self._counter_cls(
+             name="vllm:prompt_tokens",
+             documentation="Number of prefill tokens processed.",
+@@ -1121,6 +1132,9 @@ class PrometheusStatLogger(AggregateStatLoggerBase):
+                 scheduler_stats.num_skipped_waiting_reqs
+             )
+             self.gauge_kv_cache_usage[engine_idx].set(scheduler_stats.kv_cache_usage)
++            self.counter_recomputed_token_executions[engine_idx].inc(
++                scheduler_stats.num_recomputed_tokens
++            )
+ 
+             self.counter_prefix_cache_queries[engine_idx].inc(
+                 scheduler_stats.prefix_cache_stats.queries
+diff --git a/vllm/v1/metrics/stats.py b/vllm/v1/metrics/stats.py
+index 3dbc5206c..084d83a2d 100644
+--- a/vllm/v1/metrics/stats.py
++++ b/vllm/v1/metrics/stats.py
+@@ -196,6 +196,7 @@ class SchedulerStats:
+     current_wave: int = 0
+ 
+     kv_cache_usage: float = 0.0
++    num_recomputed_tokens: int = 0
+     iteration_details: SchedulerIterationDetails | None = None
+ 
+     prefix_cache_stats: PrefixCacheStats = field(default_factory=PrefixCacheStats)
+diff --git a/vllm/v1/request.py b/vllm/v1/request.py
+index 8b453a090..e120607d4 100644
+--- a/vllm/v1/request.py
++++ b/vllm/v1/request.py
+@@ -208,6 +208,11 @@ class Request:
+ 
+         # The number of times this request has been preempted by the scheduler.
+         self.num_preemptions = 0
++        # Highest token position whose recomputation was made necessary by a
++        # preemption. Scheduled positions below this frontier are repeated
++        # executions; prefix-cache hits are not scheduled and therefore do not
++        # contribute.
++        self.recompute_token_frontier = 0
+ 
+         self.prefill_stats: PrefillStats | None = PrefillStats()
+ 

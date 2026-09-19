@@ -116,12 +116,7 @@ def run_dry_run(output_dir: Path) -> dict:
     )
     # The fake server intentionally lacks exact mechanism counters.  This must
     # remain NO_GO even though the benchmark/diagnosis plumbing is valid.
-    expected_missing = {
-        "recomputed_token_executions",
-        "scheduled_prefill_tokens",
-        "scheduled_decode_tokens",
-        "effective_batch_size",
-    }
+    expected_missing = {"recomputed_token_executions"}
     fail_closed_valid = (
         not capability.ready and set(capability.missing_required) == expected_missing
     )

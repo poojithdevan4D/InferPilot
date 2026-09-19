@@ -39,9 +39,9 @@ The audit was performed against vLLM tag `v0.29.0`, upstream commit
 
 | Required semantic | Stock Prometheus | Stock `--enable-logging-iteration-details` | Decision |
 |---|---|---|---|
-| scheduled prefill/context tokens per iteration | no separate family; only combined iteration-token and request-level aggregates | yes: `context tokens` | patch counter; log cross-check |
-| scheduled decode/generation tokens per iteration | no separate family | yes: `generation tokens` | patch counter; log cross-check |
-| effective batch size per iteration | no exact per-iteration request-count family | yes: `context requests + generation requests` | patch histogram; log cross-check |
+| scheduled prefill/context tokens per iteration | no separate family; only combined iteration-token and request-level aggregates | yes: `context tokens` | stock log is source of truth |
+| scheduled decode/generation tokens per iteration | no separate family | yes: `generation tokens` | stock log is source of truth |
+| effective batch size per iteration | no exact per-iteration request-count family | yes: `context requests + generation requests` | derive exactly from stock log |
 | exact recomputed token executions | no | no | patch counter; positive/negative canary |
 
 The stock log fields come from [`compute_iteration_details`](https://github.com/vllm-project/vllm/blob/v0.29.0/vllm/v1/utils.py)
@@ -55,30 +55,37 @@ scheduler measurements as missing from the public Prometheus interface.
 
 ### Required patch contract
 
-The patch must be based on the pinned upstream commit and do only the following:
+The patch is based on the pinned upstream commit and does only the following:
 
-1. Maintain a request-local high-water mark for token positions that have actually completed a
-   scheduler step. For each later scheduled interval, count the intersection below that high-water
-   mark as recomputed executions. Re-executing the same position twice counts twice. Merely restoring
-   a prefix-cache block does not count because it was not scheduled for execution.
-2. Increment monotonic counters for vLLM-native context and generation tokens on every completed
-   scheduler iteration. In this protocol, `scheduled_prefill_tokens_total` means vLLM's
-   `context tokens`; it can include replay while a preempted request is in context phase and must not
-   be described as “new prompt tokens only.”
-3. Observe `context requests + generation requests` once per completed scheduler iteration in an
-   effective-batch-size histogram.
-4. Export exactly the four `inferpilot:*` families already listed in Gate 1, without changing policy,
-   allocation, preemption, batching, or model execution.
-5. Keep `--enable-logging-iteration-details` enabled during the canary. Across the same complete
-   server lifetime, the two scheduled-token counter deltas and the batch histogram count/sum must
-   reconcile exactly with the stock log rows. The recomputation counter is validated by the controlled
-   canaries in Gate 2, because stock vLLM has no equivalent field.
+1. At preemption, retain the highest computed-token frontier discarded for that request. For each
+   resumed scheduled interval, count only its overlap below that frontier. Re-executing the same
+   position twice counts twice; restoring a prefix-cache block does not count because it is not
+   scheduled.
+2. Carry that per-iteration count through `SchedulerOutput` and `SchedulerStats`, then increment the
+   existing Prometheus path's `vllm:recomputed_token_executions_total` counter.
+3. Do not change scheduling policy, allocation, preemption, batching, or model execution. The three
+   other required scheduler signals remain on stock `--enable-logging-iteration-details`.
 
-The fork commit, patch diff digest, container-image digest, upstream commit, and launch arguments must
-be frozen in the preregistration before the first GPU canary. Until those values replace the explicit
-placeholder in the preregistration, the study status remains **INSTRUMENTATION_NO_GO**. A log parser,
+The fork commit, patch diff digest, container-image digest, upstream commit, and launch arguments are
+frozen below and in the preregistration. A log parser,
 `vllm:prompt_tokens`, preemption count, or subtraction from nominal prompt tokens is not an acceptable
 substitute for the patched recomputation counter.
+
+### Frozen implementation
+
+| Item | Immutable value |
+|---|---|
+| upstream | `vllm-project/vllm@98dff2a81d747d1dba01a47f939f48c3526d4206` (`v0.29.0`) |
+| fork patch commit | [`poojithdevan4D/vllm@c7bb7b7308ad174c75609052dd8fc13340dd921c`](https://github.com/poojithdevan4D/vllm/commit/c7bb7b7308ad174c75609052dd8fc13340dd921c) |
+| vendored patch SHA-256 | `981dc066e73bfa873d640e8f28eefa77fc42b9583d9b42fc3ff4db5a0de9e43a` |
+| official amd64 base image | `vllm/vllm-openai@sha256:082ca6f035279109041ffd3fe0695cb568b29bc580b35c4f297a66a08b216c1b` |
+| patched image | `ghcr.io/poojithdevan4d/vllm-inferpilot@sha256:725769f8279dd5d50fc366fb9183a687e19ea1669ad4cdb2fa3904c29a3d35c1` |
+| image recipe commit | `poojithdevan4D/vllm@3f42810338d5912ef8d52167bb4882c67cac8461` |
+| zero-GPU fork tests | 9 passed: exact scheduler accounting, Prometheus exposition, stats serialization, and existing iteration/preemption paths |
+
+The image was built and pushed by [GitHub Actions run 35461545044](https://github.com/poojithdevan4D/vllm/actions/runs/35461545044).
+Always pull by digest, never by the convenience tag. This freeze unblocks the GPU **canary**, not the
+six performance cells: Gates 1 and 2 must still pass first.
 
 ## Gate 1 — pinned real-server metric surface
 
@@ -91,7 +98,7 @@ uv run python -m inferpilot.runner.metrics_capabilities http://127.0.0.1:8000 \
 ```
 
 The command must exit 0, `ready` must be `true`, and `missing_required` must be empty. The following
-semantics must each have one accepted metric name:
+Prometheus semantics must each have one accepted metric name:
 
 | Semantic | Accepted metric family |
 |---|---|
@@ -100,9 +107,10 @@ semantics must each have one accepted metric name:
 | KV occupancy | `vllm:kv_cache_usage_perc` |
 | preemption events | `vllm:num_preemptions` or `vllm:num_preemptions_total` |
 | exact recomputed token executions | `inferpilot:recomputed_token_executions_total` or `vllm:recomputed_token_executions_total` |
-| scheduled prefill tokens | `inferpilot:scheduled_prefill_tokens_total` or `vllm:scheduled_prefill_tokens_total` |
-| scheduled decode tokens | `inferpilot:scheduled_decode_tokens_total` or `vllm:scheduled_decode_tokens_total` |
-| effective batch size | `inferpilot:effective_batch_size` or `vllm:effective_batch_size` |
+
+Separately, captured startup logs must prove that `--enable-logging-iteration-details` is active, and
+the discarded canary must contain parseable rows with context requests/tokens and generation
+requests/tokens. Their absence is a Gate-1 failure even when the Prometheus report is green.
 
 ### Immediate kill criteria
 
@@ -130,12 +138,10 @@ Required checks:
 1. Counter families are monotonic during one server lifetime and reset only on a fresh server.
 2. Waiting/running gauges are nonnegative and never contradict the complete request census at aligned
    sample boundaries.
-3. `scheduled_prefill_tokens_total` and `scheduled_decode_tokens_total` increase under their respective
-   phases; neither decreases or produces non-integer deltas. Their complete-lifetime deltas exactly
-   equal the sums of stock iteration-log context and generation tokens.
-4. `effective_batch_size` is a per-iteration histogram. Its observation count equals the number of
-   complete stock iteration-log rows, its sum equals the logged sum of context plus generation
-   requests, and every logged observation is within `[0, max_num_seqs]`.
+3. Stock iteration-log context and generation token fields increase under their respective phases and
+   remain nonnegative integers.
+4. Effective batch size is derived per row as context requests plus generation requests; every value
+   is within `[0, max_num_seqs]`.
 5. A deliberately preempting canary makes both the preemption-event counter and
    `recomputed_token_executions_total` increase.
 6. A low-pressure control produces zero recomputed-token delta. If it does not, explain and validate
@@ -148,7 +154,7 @@ Required checks:
 
 Record `INSTRUMENTATION_INVALID` and stop if a counter resets, decreases, is ambiguous about cached vs
 recomputed work, cannot be aligned to the measurement window, or fails the positive/negative canary.
-Also stop on any patch/log reconciliation mismatch. Do not replace exact recomputation with
+Also stop on malformed or incomplete iteration logs. Do not replace exact recomputation with
 preemption event count, log-derived subtraction, or an undocumented prompt-token proxy.
 
 ## Gate 3 — each of the six registered cells
