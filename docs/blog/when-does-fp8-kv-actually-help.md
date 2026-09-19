@@ -8,7 +8,12 @@ outputs**. But there is a clean, mechanistic rule for exactly when it helps — 
 
 Everything below is measured, single-variable, and reproducible. Every claim comes with its caveats.
 
-## The two-sided law
+## The two-sided heuristic (we call it a "law" for the headline)
+
+> Caveat up front: this is an *empirical heuristic from a small, partly post-hoc matrix* — single runs,
+> no confidence intervals, no preregistered held-out validation. Treat it as a strong hypothesis, not a
+> proven law. Elevating it needs a preregistered matrix with repetitions across the saturation boundary.
+
 
 We tested `kv_cache_dtype=fp8` vs bf16 KV on Qwen2.5 **3B, 7B, and 14B** across **A10 and A100**, plus **Mistral-7B-v0.3** (a different model family), in a
 KV-pressured regime and a compute-bound regime:
@@ -46,11 +51,12 @@ fp8 KV quantization can silently degrade outputs. We checked (Qwen2.5-3B, fp8 vs
 |---|---|---|
 | Greedy token agreement | **12%** | outputs *reworded* — a cascade artifact, **not** a quality metric |
 | Factual QA (canonical answers) | **0/16 regressions** | task-lossless on short tasks |
-| Teacher-forced KL | mean >0.01, **p99 0.39** | a real, mostly-benign distributional shift |
+| Teacher-forced KL | mean >0.01, **p99 0.39 → gate FAILED** | a real distributional shift (top-20 approx) |
 | Needle-in-haystack @14k, 5 depths | **fp8 5/5 = bf16 5/5** | long-context retrieval preserved |
 
-So the +52% is **quality-safe through 14k context** — correct answers, intact retrieval — with a
-measurable-but-benign shift. The one documented danger (retrieval collapse beyond ~100k context) we did
+So through 14k context **no regression was detected by a small Qwen-3B factual/retrieval smoke test** —
+but the KL preflight *failed*, so we do NOT claim 'quality-safe'/'lossless': the impact is task-dependent
+and unverified beyond these tests. The one documented danger (retrieval collapse beyond ~100k context) we did
 *not* test, so we gate it explicitly rather than pretend. (Exact-token agreement over-flags open-ended
 generation; teacher-forced KL + needle are the defensible metrics.)
 

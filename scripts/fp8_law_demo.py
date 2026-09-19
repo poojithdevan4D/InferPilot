@@ -27,10 +27,12 @@ CASES = [
 
 
 def _load(pattern: str) -> ExperimentResult | None:
-    hits = sorted(glob.glob(str(ROOT / pattern)))
-    if not hits:
-        return None
-    return ExperimentResult.model_validate_json((Path(hits[-1]) / "result.json").read_text())
+    # committed evidence bundle first (reproducible on a fresh clone), then local runs/
+    for base in ("docs/evidence/", "runs/"):
+        hits = sorted(glob.glob(str(ROOT / pattern.replace("runs/", base, 1))))
+        if hits:
+            return ExperimentResult.model_validate_json((Path(hits[-1]) / "result.json").read_text())
+    return None
 
 
 def main() -> int:

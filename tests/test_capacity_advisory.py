@@ -58,13 +58,16 @@ SLO_ = SLO(ttft_p95_ms=5000, tpot_p95_ms=60)
 ECON = OperatorEconomics(gpu_cost_per_hour_usd=2.10, gpu_count=1, target_qps=4.0)
 
 
-def test_compute_bound_recommends_scale_with_gpu_delta() -> None:
-    # GPU pinned + saturated (TTFT ramps) -> no lever -> scale
+def test_compute_bound_slo_failing_recommends_scale_without_false_sizing() -> None:
+    # GPU pinned + saturated (SLO fails) -> no lever -> scale, but goodput/cost/GPU-count
+    # must NOT be fabricated from an overloaded run (needs a rate sweep).
     r = _result(gpu_mean=99.0, kv_peak=0.5, saturating=True, throughput=1.5)
     adv = advise_capacity(r, SLO_, ECON)
     assert adv.action == "scale" and adv.diagnosis.regime == "compute_bound"
-    assert adv.gpus_needed_for_target is not None and adv.gpus_needed_for_target >= 2
-    assert adv.cost_per_million_output_tokens_usd and adv.cost_per_million_output_tokens_usd > 0
+    assert not adv.met_slo and adv.goodput_qps == 0.0
+    assert adv.gpus_needed_for_target is None            # can't size from an overloaded run
+    assert adv.cost_per_million_output_tokens_usd is None  # cost only meaningful under SLO
+    assert "does NOT meet SLO" in adv.recommendation and "rate sweep" in adv.recommendation
 
 
 def test_kv_capacity_bound_decode_recommends_fp8() -> None:
@@ -96,3 +99,12 @@ def test_roundtrip_and_tamper_rejected() -> None:
     raw["action"] = "adequate"
     with pytest.raises(ValidationError, match="inconsistent with its diagnosis"):
         CapacityAdvisory.model_validate(raw)
+
+
+def test_healthy_deployment_with_lever_stays_adequate_not_tune() -> None:
+    # low-utilization + a (spec-decode) lever exists, BUT it meets SLO and target ->
+    # must NOT recommend tuning a passing deployment.
+    r = _result(gpu_mean=40, kv_peak=0.2, saturating=False, rate=4.0, throughput=4.0)
+    adv = advise_capacity(r, SLO_, ECON)
+    assert adv.diagnosis.recommended_lever != "none"   # a lever is available
+    assert adv.action == "adequate"                    # but we do NOT tune a healthy deployment

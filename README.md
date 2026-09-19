@@ -9,7 +9,8 @@ tamper-evident, human-readable artifact.
 
 ## The headline result (all measured on rented cloud GPUs, reproducible)
 
-**A mechanistic, two-sided law for fp8 KV cache**, validated across **3 models × 2 GPUs**:
+**An empirical, two-sided heuristic for fp8 KV cache** (a hypothesis — measured, but not yet a
+preregistered held-out result), observed across **4 models × 2 families × 2 GPUs**:
 
 | Regime (from telemetry) | InferPilot says | Measured outcome |
 |---|---|---|
@@ -17,17 +18,20 @@ tamper-evident, human-readable artifact.
 | compute-bound (KV low, no preempt) | keep default — no lever | **+1.7% (correctly nothing)** |
 
 The discriminator is **preemptions**, not GPU utilization (both regimes show GPU ~100%). And the
-fp8 win is **quality-verified** four ways: 0/16 factual-QA regressions, needle-in-haystack 5/5 at
-14k context, benign teacher-forced KL, with the documented >100k risk explicitly gated.
+fp8 win is **quality smoke-tested** four ways: 0/16 factual-QA regressions and needle-in-haystack
+5/5 at 14k — BUT the teacher-forced-KL preflight **failed** (mean >0.01, p99 0.39: a real distributional
+shift). So quality impact is **task-dependent and unverified beyond these small smoke tests**; >100k is
+gated. We do not claim 'lossless'.
 
 **Cost-to-serve rescue** (`scripts/cost_rescue_demo.py`): a drowning 3B/A10 deployment →
-diagnose → fp8 → **+52% goodput, TTFT −56%, −34% $/token, quality-verified, one flag, zero new
-hardware.**
+diagnose → fp8 → **+52% goodput, TTFT −56%, −34% $/token (quality smoke-tested), one flag, zero
+new hardware.**
 
 ```bash
 uv run python scripts/cost_rescue_demo.py    # the rescue story, from real evidence
 uv run python scripts/fp8_law_demo.py        # 4/4 diagnosis-vs-measured, GPU-free
-uv run --extra dev pytest -q                 # 430+ self-validating tests
+uv run --extra dev pytest -q                 # 435 tests (contract self-consistency,
+                                             #   NOT diagnostic accuracy on real deployments)
 ```
 
 ## What it does (the reasoning pipeline)
@@ -37,9 +41,12 @@ uv run --extra dev pytest -q                 # 430+ self-validating tests
 $/token) → quality gate (`KLQualityGate` + `NeedleQualityGate`) → `compare_configs` (fail-closed
 Pareto) → `controller` 0.3.0 (apply/rollback). Ingests real traffic via `WorkloadTrace`.
 
-**Honest limits:** validated on Qwen + vLLM + a handful of GPUs; >100k-context fp8 and other engines
-(SGLang/TRT-LLM) untested; a running product (sidecar/service) is future work. Full measured evidence
-in `docs/experiments/`, methodology in `docs/design/`.
+**Honest limits (read `docs/CRITIQUE-RESPONSE.md`):** the fp8 result is a heuristic from a small,
+partly post-hoc matrix (no preregistered held-out validation yet); all wins are in *overloaded* regimes
+(a goodput-ceiling lever, not a low-load speedup); quality is smoke-tested only (KL preflight failed);
+synthetic traffic; vLLM is the only fully-wired engine (SGLang throughput-only); and this is a rigorous
+reasoning **library + evidence, not a running product**. Full measured evidence in `docs/experiments/`,
+methodology in `docs/design/`.
 
 ---
 

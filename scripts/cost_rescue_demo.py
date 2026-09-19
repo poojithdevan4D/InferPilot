@@ -17,8 +17,11 @@ GPU_HOURLY = 1.10  # A10G $/hr
 
 
 def _load(pat: str) -> ExperimentResult:
-    return ExperimentResult.model_validate_json(
-        (Path(sorted(glob.glob(str(ROOT / pat)))[-1]) / "result.json").read_text())
+    for base in ("docs/evidence/", "runs/"):
+        hits = sorted(glob.glob(str(ROOT / pat.replace("runs/", base, 1))))
+        if hits:
+            return ExperimentResult.model_validate_json((Path(hits[-1]) / "result.json").read_text())
+    raise FileNotFoundError(pat)
 
 
 def _cost_per_1m(tok_s: float) -> float:
@@ -50,7 +53,7 @@ def main() -> int:
     line("\nQUALITY GATE (measured, fp8 vs bf16 — required before apply):")
     line("  factual QA: 0/16 regressions (task-lossless)")
     line("  needle-in-haystack @14k, 5 depths: fp8 5/5 = bf16 5/5 (retrieval preserved)")
-    line("  teacher-forced KL: benign distributional shift; >100k context still gated -> PASS (<=14k)")
+    line("  teacher-forced KL preflight: FAILED (mean>0.01, p99 0.39) -> real shift; task impact unverified")
 
     gain = (fa.throughput_requests_per_s / ba.throughput_requests_per_s - 1) * 100
     save = (1 - _cost_per_1m(fa.throughput_tokens_per_s) / _cost_per_1m(ba.throughput_tokens_per_s)) * 100
@@ -62,7 +65,7 @@ def main() -> int:
          f"(-{save:.0f}%)")
 
     line("\nRESULT:")
-    line(f"  +{gain:.0f}% goodput, TTFT halved, {save:.0f}% lower cost-per-token — quality-verified,")
+    line(f"  +{gain:.0f}% goodput, TTFT halved, {save:.0f}% lower cost-per-token — quality smoke-tested,")
     line("  one config flag, zero new hardware. InferPilot found it, explained it, and gated it.")
     line("=" * 74)
     return 0

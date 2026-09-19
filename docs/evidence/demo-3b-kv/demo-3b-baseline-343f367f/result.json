@@ -1,0 +1,106 @@
+{
+  "schema_version": "0.5.0",
+  "config": {
+    "schema_version": "0.5.0",
+    "experiment_id": "demo-3b-baseline",
+    "name": "demo-3b-baseline",
+    "description": "Demo: 3B/A10/8k-ctx/high-concurrency KV-bound regime; baseline vs fp8 (single-variable kv_cache_dtype).",
+    "engine": {
+      "model": "Qwen/Qwen2.5-3B-Instruct",
+      "revision": "aa8e72537993ba99e69dfaafa59ed015b17504d1",
+      "dtype": "auto",
+      "max_model_len": 8192,
+      "max_num_seqs": null,
+      "max_num_batched_tokens": null,
+      "gpu_memory_utilization": 0.9,
+      "kv_cache_dtype": "auto",
+      "enable_prefix_caching": null,
+      "enable_chunked_prefill": null,
+      "sampler_backend": "pytorch",
+      "generation_config": "vllm",
+      "extra_args": {}
+    },
+    "workload": {
+      "name": "demo-3b-8k",
+      "num_requests": 60,
+      "warmup_requests": 4,
+      "prompt_tokens": 7680,
+      "output_tokens": 512,
+      "request_rate_qps": 5.0,
+      "arrival_pattern": "poisson-v1",
+      "burst_size": null,
+      "max_concurrency": null,
+      "temperature": 0.0,
+      "ignore_eos": true,
+      "seed": 0,
+      "prompt_seed": 7007,
+      "arrival_seed": 60
+    },
+    "slo": null,
+    "seed": 0,
+    "tags": [
+      "demo",
+      "qwen2.5-3b",
+      "kv-bound",
+      "8k"
+    ]
+  },
+  "environment": {
+    "hostname": "modal",
+    "platform": "Linux-4.19.0-gvisor-x86_64-with-glibc2.35",
+    "python_version": "3.12.1",
+    "torch_version": "2.13.0",
+    "vllm_version": "0.29.0",
+    "hardware": {
+      "gpu_name": "NVIDIA A10",
+      "gpu_count": 1,
+      "gpu_memory_total_mb": 23028,
+      "driver_version": "580.95.05",
+      "driver_cuda_version": "13.0",
+      "cpu_model": "unknown",
+      "cpu_count": 17,
+      "system_ram_mb": 1031156
+    },
+    "toolchain": {
+      "torch_cuda_version": "13.0",
+      "nvcc_version": "12.6.77",
+      "nvcc_path": "/usr/local/cuda/bin/nvcc",
+      "flashinfer_version": "0.6.18"
+    },
+    "effective_sampler_backend": "pytorch",
+    "runtime_overrides": {
+      "VLLM_USE_FLASHINFER_SAMPLER": "0"
+    },
+    "captured_at": "2026-09-18T12:43:26.980242Z"
+  },
+  "status": "failed",
+  "measurements": [],
+  "aggregates": null,
+  "failure": {
+    "status": "failed",
+    "error_type": "WarmupFailure",
+    "message": "2/4 warm-up request(s) failed before measured execution; first error: HTTP 400: {\"error\":{\"message\":\"This model's maximum context length is 8192 tokens. However, you requested 512 output tokens and your prompt contains at least 7681 input tokens, for a total of at least 8193 tokens. Please reduce the length of the input prompt or the number of requested output tokens. (parameter=input_tokens, value=7681)\",\"type\":\"BadRequestError\",\"param\":\"input_tokens\",\"code\":400}}",
+    "traceback": null,
+    "occurred_at": "2026-09-18T12:45:56.793898Z"
+  },
+  "effective_config": {
+    "model": "Qwen/Qwen2.5-3B-Instruct",
+    "revision": "aa8e72537993ba99e69dfaafa59ed015b17504d1",
+    "dtype": "bfloat16",
+    "max_model_len": 8192,
+    "max_num_seqs": null,
+    "max_num_batched_tokens": null,
+    "enable_prefix_caching": true,
+    "enable_chunked_prefill": true,
+    "sampler_backend": "pytorch",
+    "kv_cache_dtype": "auto",
+    "gpu_memory_utilization": 0.9,
+    "generation_config": "vllm",
+    "source": "startup_log",
+    "unverified_fields": [],
+    "verified": true
+  },
+  "telemetry": null,
+  "started_at": "2026-09-18T12:43:26.981036Z",
+  "finished_at": "2026-09-18T12:45:56.793923Z"
+}
