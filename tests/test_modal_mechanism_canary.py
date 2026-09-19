@@ -17,7 +17,8 @@ def test_modal_canary_is_parseable_and_digest_pinned() -> None:
     source = SCRIPT.read_text()
     ast.parse(source)
     assert "sha256:725769f8279dd5d50fc366fb9183a687e19ea1669ad4cdb2fa3904c29a3d35c1" in source
-    assert 'ln -s $(command -v python3) /usr/local/bin/python' in source
+    assert 'add_python="3.12"' in source
+    assert '"PYTHONPATH": "/usr/local/lib/python3.12/dist-packages"' in source
     assert '"ENTRYPOINT []"' in source
     assert 'GPU = "A10G"' in source
 

@@ -37,11 +37,12 @@ except IndexError:
 
 image = modal.Image.from_registry(
     IMAGE,
+    add_python="3.12",
     setup_dockerfile_commands=[
-        "RUN ln -s $(command -v python3) /usr/local/bin/python",
         "ENTRYPOINT []",
     ],
 )
+image = image.env({"PYTHONPATH": "/usr/local/lib/python3.12/dist-packages"})
 if WHEEL is not None:
     image = image.add_local_file(
         WHEEL,
@@ -110,18 +111,32 @@ def probe() -> dict:
     import inspect
     import platform
 
+    import aiohttp
+    import google.protobuf
+    import idna
     import vllm
+    from packaging.version import Version
     from vllm.v1.metrics import loggers
 
     source = inspect.getsource(loggers.PrometheusStatLogger)
+    dependencies_ready = (
+        Version(aiohttp.__version__) >= Version("3.13.3")
+        and Version(google.protobuf.__version__) >= Version("6.30.2")
+        and Version(idna.__version__) >= Version("3.18")
+    )
     return {
         "image": IMAGE,
         "python": platform.python_version(),
         "vllm": vllm.__version__,
+        "aiohttp": aiohttp.__version__,
+        "protobuf": google.protobuf.__version__,
+        "idna": idna.__version__,
+        "dependencies_ready": dependencies_ready,
         "recomputed_counter_in_logger": "recomputed_token_executions" in source,
         "ready": (
             vllm.__version__ == "0.29.0"
             and "recomputed_token_executions" in source
+            and dependencies_ready
         ),
     }
 
