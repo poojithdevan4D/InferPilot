@@ -41,6 +41,7 @@ from .server import (
     find_free_port,
 )
 from .telemetry import TelemetrySampler
+from .load_evidence import build_load_evidence, intended_replay_digest
 from .workload_gen import GeneratedWorkload, generate_workload
 
 __all__ = [
@@ -53,6 +54,8 @@ __all__ = [
     "parse_effective_config",
     "check_fidelity",
     "TelemetrySampler",
+    "build_load_evidence",
+    "intended_replay_digest",
     "compute_aggregates",
     "percentile",
     "GenerationParams",

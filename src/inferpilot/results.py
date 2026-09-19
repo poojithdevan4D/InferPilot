@@ -23,6 +23,7 @@ from .environment import EnvironmentMetadata
 from .measurements import RequestMeasurement
 from .status import ExperimentStatus, FailureRecord
 from .telemetry import ResourceTelemetry
+from .saturation import LoadEvidence
 
 
 class AggregateMetrics(SchemaModel):
@@ -118,9 +119,14 @@ class ExperimentResult(VersionedSchemaModel):
     aggregates: Optional[AggregateMetrics] = Field(default=None)
     failure: Optional[FailureRecord] = Field(default=None)
 
-    # Resolved-at-startup config (what actually ran) and measured-window telemetry.
+    # Resolved-at-startup config, measured-window telemetry, and optional aligned
+    # load evidence. Old result bundles omit load_evidence and load as None.
     effective_config: Optional[EffectiveConfig] = Field(default=None)
     telemetry: Optional[ResourceTelemetry] = Field(default=None)
+    load_evidence: Optional[LoadEvidence] = Field(
+        default=None,
+        description="Aligned request/queue/token evidence for conservative load assessment.",
+    )
 
     started_at: Optional[datetime] = Field(default=None)
     finished_at: Optional[datetime] = Field(default=None)

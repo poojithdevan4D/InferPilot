@@ -81,6 +81,8 @@ class BottleneckDiagnosis(SchemaModel):
 
 
 def diagnose(result: ExperimentResult, *, load_evidence: Optional[LoadEvidence] = None) -> BottleneckDiagnosis:
+    if load_evidence is None:
+        load_evidence = result.load_evidence
     if load_evidence is not None and load_evidence.experiment_id != result.config.experiment_id:
         raise ValueError("load evidence experiment ID mismatch")
     assessment = assess_load_state(result.measurements, evidence=load_evidence)

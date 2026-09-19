@@ -22,6 +22,10 @@ def test_kv_scrape_and_derivation() -> None:
     # KV usage scraped from vllm:kv_cache_usage_perc
     assert telem.kv_cache_usage_peak_perc == 0.37
     assert telem.kv_cache_usage_mean_perc == 0.37
+    assert all(s.num_requests_waiting == 0 for s in sampler.samples)
+    assert all(s.num_requests_running == 0 for s in sampler.samples)
+    assert all(s.num_preemptions_total == 0 for s in sampler.samples)
+    assert telem.preemptions_total == 0
     # samples carry monotonic-relative timestamps
     assert all(s.t_s >= 0 for s in sampler.samples)
 
