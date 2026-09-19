@@ -17,7 +17,7 @@ from datetime import datetime, timezone
 from importlib import metadata as _md
 from pathlib import Path
 from time import monotonic
-from typing import Callable, Optional
+from typing import Callable, Optional, Sequence
 
 from ..config import EngineConfig, ExperimentConfig
 from ..environment import EnvironmentMetadata
@@ -32,6 +32,7 @@ from .artifacts import (
     server_log_paths,
     write_arrivals,
     write_lifecycle,
+    write_metrics_capabilities,
     write_phases,
     write_result,
     write_telemetry,
@@ -56,6 +57,10 @@ from .server import (
 )
 from .telemetry import TelemetrySampler
 from .load_evidence import build_load_evidence, intended_replay_digest
+from .metrics_capabilities import (
+    MetricRequirement,
+    fetch_metrics_capability_report,
+)
 from .workload_gen import generate_workload
 
 CommandBuilder = Callable[[int], list[str]]
@@ -167,13 +172,19 @@ def run_experiment(
     ready_timeout_s: float = 300.0,
     request_timeout_s: float = 120.0,
     terminate_timeout_s: float = 15.0,
+    metric_requirements: Optional[Sequence[MetricRequirement]] = None,
+    require_metric_capabilities: bool = False,
 ) -> ExperimentResult:
     """Run one experiment end-to-end and persist an immutable result artifact.
 
     ``command_builder`` maps a chosen port to the server argv; defaults to the
     real vLLM command. Tests inject a fake-server builder so no GPU/model/vLLM is
-    required.
+    required. ``metric_requirements`` captures an immutable name-level preflight;
+    set ``require_metric_capabilities`` to stop before measurement when any
+    required family is absent. Name presence still does not prove metric semantics.
     """
+    if require_metric_capabilities and metric_requirements is None:
+        raise ValueError("required metric capabilities need explicit metric requirements")
     workload = config.workload
     env_overrides = build_server_env(config.engine)
     environment = capture_environment(config.engine, env_overrides)
@@ -232,6 +243,24 @@ def run_experiment(
                 str(exc), started_at,
             )
 
+        if ready:
+            if metric_requirements is not None:
+                capability_report = fetch_metrics_capability_report(
+                    server.base_url,
+                    requirements=metric_requirements,
+                )
+                write_metrics_capabilities(run_dir, capability_report)
+                if require_metric_capabilities and not capability_report.ready:
+                    result = _failure_result(
+                        config,
+                        environment,
+                        ExperimentStatus.FAILED,
+                        "MetricCapabilityMismatch",
+                        "required metric semantics are absent: "
+                        + ", ".join(capability_report.missing_required),
+                        started_at,
+                    )
+                    ready = False
         if ready:
             # Configuration fidelity: verify what vLLM actually resolved vs what
             # we asked for. Do not trust the input config to describe what ran.

@@ -17,6 +17,7 @@ from typing import Sequence
 from ..measurements import RequestMeasurement
 from ..results import ExperimentResult
 from ..telemetry import ResourceSample
+from .metrics_capabilities import MetricsCapabilityReport
 
 RESULT_FILENAME = "result.json"
 WARMUP_FILENAME = "warmup.json"
@@ -24,6 +25,7 @@ TELEMETRY_FILENAME = "telemetry.json"
 LIFECYCLE_FILENAME = "lifecycle.json"
 ARRIVALS_FILENAME = "arrivals.json"
 PHASES_FILENAME = "phases.json"
+METRICS_CAPABILITIES_FILENAME = "metrics-capabilities.json"
 SERVER_STDOUT_FILENAME = "server.stdout.log"
 SERVER_STDERR_FILENAME = "server.stderr.log"
 
@@ -88,6 +90,16 @@ def write_arrivals(run_dir: Path, arrivals: dict) -> Path:
 def write_phases(run_dir: Path, timing: "RunnerPhaseTiming") -> Path:
     """Persist the monotonic runner phase-timing artifact (immutable)."""
     return _write_immutable_json(run_dir / PHASES_FILENAME, timing.model_dump(mode="json"))
+
+
+def write_metrics_capabilities(
+    run_dir: Path, report: MetricsCapabilityReport
+) -> Path:
+    """Persist the metric-surface preflight captured from the running server."""
+    return _write_immutable_json(
+        run_dir / METRICS_CAPABILITIES_FILENAME,
+        report.model_dump(mode="json"),
+    )
 
 
 def write_result(run_dir: Path, result: ExperimentResult) -> Path:

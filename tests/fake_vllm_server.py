@@ -51,13 +51,14 @@ class _Handler(BaseHTTPRequestHandler):
             self.wfile.write(b"OK")
         elif self.path.startswith("/metrics"):
             kv = getattr(self.server, "kv_usage", 0.42)  # type: ignore[attr-defined]
+            preemptions = self.server.next_preemption_sample()  # type: ignore[attr-defined]
             body = (
                 "# HELP vllm:kv_cache_usage_perc KV-cache usage.\n"
                 "# TYPE vllm:kv_cache_usage_perc gauge\n"
                 f'vllm:kv_cache_usage_perc{{model_name="fake"}} {kv}\n'
                 "vllm:num_requests_waiting 0\n"
                 "vllm:num_requests_running 0\n"
-                "vllm:num_preemptions_total 0\n"
+                f"vllm:num_preemptions_total {preemptions}\n"
             ).encode()
             self.send_response(200)
             self.send_header("Content-Type", "text/plain; version=0.0.4")
@@ -81,7 +82,11 @@ class _Handler(BaseHTTPRequestHandler):
 
         # Optional fixed delay before responding — lets tests prove open-loop
         # arrivals do not wait for earlier requests to complete.
-        delay = getattr(self.server, "response_delay", 0.0)  # type: ignore[attr-defined]
+        request_index = self.server.next_request_index()  # type: ignore[attr-defined]
+        delay = (
+            getattr(self.server, "response_delay", 0.0)
+            + request_index * getattr(self.server, "response_delay_slope", 0.0)
+        )
         if delay:
             time.sleep(delay)
 
@@ -120,7 +125,8 @@ class _FakeServer(ThreadingHTTPServer):
 
     def __init__(
         self, addr, mode: str, output_tokens: int, prompt_tokens: int,
-        kv_usage: float = 0.42, response_delay: float = 0.0
+        kv_usage: float = 0.42, response_delay: float = 0.0,
+        response_delay_slope: float = 0.0, preemption_increment: int = 0,
     ) -> None:
         super().__init__(addr, _Handler)
         self.mode = mode
@@ -128,15 +134,36 @@ class _FakeServer(ThreadingHTTPServer):
         self.prompt_tokens = prompt_tokens
         self.kv_usage = kv_usage
         self.response_delay = response_delay
+        self.response_delay_slope = response_delay_slope
+        self.preemption_increment = preemption_increment
+        self._request_index = 0
+        self._preemption_sample = 0
+        self._counter_lock = threading.Lock()
+
+    def next_request_index(self) -> int:
+        with self._counter_lock:
+            value = self._request_index
+            self._request_index += 1
+            return value
+
+    def next_preemption_sample(self) -> int:
+        with self._counter_lock:
+            value = self._preemption_sample
+            self._preemption_sample += self.preemption_increment
+            return value
 
 
 @contextlib.contextmanager
 def serve_in_thread(
     mode: str = "normal", output_tokens: int = 8, prompt_tokens: int = 128,
-    kv_usage: float = 0.42, response_delay: float = 0.0
+    kv_usage: float = 0.42, response_delay: float = 0.0,
+    response_delay_slope: float = 0.0, preemption_increment: int = 0,
 ) -> Iterator[str]:
     """Start the fake server on a free port in a daemon thread; yield base_url."""
-    server = _FakeServer(("127.0.0.1", 0), mode, output_tokens, prompt_tokens, kv_usage, response_delay)
+    server = _FakeServer(
+        ("127.0.0.1", 0), mode, output_tokens, prompt_tokens, kv_usage,
+        response_delay, response_delay_slope, preemption_increment,
+    )
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
@@ -172,6 +199,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--prompt-tokens", type=int, default=128)
     parser.add_argument("--kv-usage", type=float, default=0.42)
     parser.add_argument("--response-delay", type=float, default=0.0)
+    parser.add_argument("--response-delay-slope", type=float, default=0.0)
+    parser.add_argument("--preemption-increment", type=int, default=0)
     parser.add_argument(
         "--emit-effective",
         default=None,
@@ -193,7 +222,8 @@ def main(argv: list[str] | None = None) -> int:
 
     server = _FakeServer(
         ("127.0.0.1", args.port), args.mode, args.output_tokens, args.prompt_tokens,
-        args.kv_usage, args.response_delay,
+        args.kv_usage, args.response_delay, args.response_delay_slope,
+        args.preemption_increment,
     )
     try:
         server.serve_forever()

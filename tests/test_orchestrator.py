@@ -20,6 +20,8 @@ from inferpilot import (
     WorkloadSpec,
 )
 from inferpilot.runner.artifacts import RESULT_FILENAME
+from inferpilot.runner.artifacts import METRICS_CAPABILITIES_FILENAME
+from inferpilot.runner.metrics_capabilities import FP8_MECHANISM_REQUIREMENTS
 from inferpilot.runner.orchestrator import run_experiment
 
 FAKE = Path(__file__).parent / "fake_vllm_server.py"
@@ -131,6 +133,23 @@ def test_config_fidelity_mismatch_fails_before_measurement(tmp_path) -> None:
     # resolved value captured for provenance
     assert result.effective_config is not None
     assert result.effective_config.enable_prefix_caching is True
+
+
+def test_required_metric_capabilities_fail_before_measurement(tmp_path) -> None:
+    result = run_experiment(
+        _config(num_requests=3),
+        str(tmp_path),
+        command_builder=_builder("normal", 8),
+        ready_timeout_s=15.0,
+        metric_requirements=FP8_MECHANISM_REQUIREMENTS,
+        require_metric_capabilities=True,
+    )
+    assert result.status is ExperimentStatus.FAILED
+    assert result.failure is not None
+    assert result.failure.error_type == "MetricCapabilityMismatch"
+    assert result.measurements == []
+    run_dir = next(tmp_path.iterdir())
+    assert (run_dir / METRICS_CAPABILITIES_FILENAME).exists()
 
 
 def test_request_failures_still_complete_with_failed_measurements(tmp_path) -> None:
