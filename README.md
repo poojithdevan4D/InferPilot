@@ -42,6 +42,11 @@ For a technical review, read these in order:
 4. [`src/inferpilot/runner/load_evidence.py`](src/inferpilot/runner/load_evidence.py) — instrumentation for diagnosis-capable future runs.
 5. [`docs/experiments/`](docs/experiments/) — preregistrations, positive results, invalid studies, and honest negatives.
 
+The next GPU milestone is intentionally blocked pending the
+[`fp8 held-out readiness audit`](docs/experiments/2026-09-19-fp8-heldout-readiness-audit.md): the
+registered mechanism study asks for exact recomputed-token, ITL, and variable-length workload evidence
+that the current runner does not yet collect. This prevents an expensive but scientifically unusable run.
+
 ## What it does (the reasoning pipeline)
 
 `LoadEvidence` → `LoadAssessment` → `BottleneckDiagnosis` → `plan_optimization` (abstain unless winnable) →
