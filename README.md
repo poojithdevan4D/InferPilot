@@ -24,6 +24,25 @@ The strongest measured case was a 3B/A10 run: fp8 KV delivered **+52% goodput, T
 −34% measured cost per output token**. Those legacy bundles predate aligned load evidence, so the
 redesigned advisor now returns `unknown` on them instead of reverse-engineering a confident diagnosis.
 
+## See it in 10 seconds (no GPU)
+
+The core stance — diagnose only from aligned evidence, otherwise abstain — running locally:
+
+```text
+$ python scripts/aligned_load_demo.py
+InferPilot aligned-load demo (synthetic, deterministic, no GPU)
+
+keeps up             -> healthy       no_observed_load_pressure_not_a_headroom_or_slo_certificate
+persistent backlog   -> overloaded    persistent_request_backlog_growth, persistent_useful_output_work_deficit
+missing evidence     -> indeterminate  missing_aligned_window_and_coverage_evidence
+
+The system calls overload only from persistent conserved backlog growth;
+without aligned evidence it abstains instead of guessing from GPU/KV snapshots.
+```
+
+That abstention is the whole point: most tools guess a bottleneck from a GPU-utilization snapshot.
+InferPilot refuses to, unless the per-window request/queue/token evidence actually supports it.
+
 ## Five-minute review
 
 ```bash
