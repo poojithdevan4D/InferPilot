@@ -1,28 +1,8 @@
-"""Bottleneck diagnosis: WHY a config performs as it does, and whether a knob can help.
+"""Separate observed load state from hypotheses about its cause.
 
-The lesson from the 7B/decode/14B campaigns: config tuning is not a lottery. A serving
-config can only beat the vLLM default when the default leaves a *specific* bottleneck
-addressable by a *specific* lever. Blindly sweeping knobs and hoping is search-by-prayer;
-diagnosing the bottleneck first tells you whether any lever exists at all — and which.
-
-This classifies a measured run into a regime from signals we already collect
-(GPU utilization, KV-cache usage) plus the TTFT-stability saturation signal, and maps
-the regime to a recommended lever with a mechanistic predicted effect. It ABSTAINS
-(lever "none") whenever no config lever can help — which is the honest and common case.
-
-Roofline reasoning (the discriminator is GPU-utilization headroom):
-
-  * GPU pinned (~100%) + saturated  -> COMPUTE/BANDWIDTH-bound. The wall is raw decode of
-    the weights; more concurrency (fp8, higher max_num_seqs) cannot add throughput. No
-    config lever — needs quantization / smaller model / more GPUs / speculative decoding.
-  * GPU has headroom (<~85%) + KV full (~100%) + saturated -> KV-CAPACITY-bound. Concurrency
-    is throttled by KV, not compute. Lever: kv_cache_dtype=fp8 (or lower KV footprint) to
-    fit more concurrent sequences; predicted throughput gain up to the KV compression ratio,
-    bounded by the remaining GPU headroom. THIS is where config wins live.
-  * Not saturated + GPU low -> UNDERUTILIZED / latency-bound. The default already keeps up;
-    config barely matters.
-  * Saturated + GPU low + KV not full -> OTHER (scheduler/client/CPU) — investigate, no
-    weights-level lever implied.
+GPU utilization cannot identify compute versus memory bandwidth versus recompute.
+KV occupancy and preemption events nominate a canary; they do not predict its gain.
+Version 0.2 diagnoses must be recomputed, not replayed as version 0.3 decisions.
 """
 
 from __future__ import annotations
@@ -33,160 +13,91 @@ from pydantic import Field, model_validator
 
 from ._base import SchemaModel
 from .results import ExperimentResult
-from .saturation import detect_saturation
+from .saturation import LoadAssessment, LoadEvidence, LoadState, assess_load_state, detect_saturation
 
-GPU_PINNED_PCT = 90.0     # >= this = compute/bandwidth is the wall
-KV_FULL = 0.95            # >= this = KV cache is the concurrency limiter
-GPU_LOW_PCT = 60.0        # <  this (and not saturated) = latency-lever headroom
+GPU_PINNED_PCT = 90.0
+KV_FULL = 0.95
+GPU_LOW_PCT = 60.0
 
-# Operator-grade regime map (grounded in vLLM mechanics; see DeepSeek review 2026-09-18).
 Regime = Literal[
-    "compute_bound",              # GPU pinned -> no config lever
-    "kv_capacity_bound_decode",   # GPU headroom + KV full + decode-heavy -> fp8 KV
-    "kv_capacity_bound_prefill",  # GPU headroom + KV full + prefill/ITL-sensitive -> lower batched-tokens
-    "low_utilization_latency",    # spare GPU, keeps up -> spec-decode IF latency-SLO
-    "underutilized",              # keeps up -> default adequate
-    "other_bottleneck",           # saturated, spare GPU+KV -> scheduler/client/CPU
+    "compute_bound", "kv_capacity_bound_decode", "kv_capacity_bound_prefill",
+    "low_utilization_latency", "underutilized", "other_bottleneck",
+    "unknown", "no_load_pressure", "kv_pressure",
 ]
 
 
 def _classify(
-    gpu_mean: float, kv_peak: float, saturated: bool, decode_heavy: bool,
-    preemptions: Optional[int] = None,
+    gpu_mean: Optional[float], kv_peak: Optional[float], saturated: bool,
+    decode_heavy: bool, preemptions: Optional[int] = None, *,
+    load_state: LoadState = "indeterminate",
 ) -> tuple[Regime, str, list[str], str]:
-    """Pure regime -> (regime, recommended_lever, preconditions, predicted_effect).
-
-    Saturation gates a *limiting* bottleneck: a run that keeps up (TTFT stable) is not
-    throughput-bottlenecked. Levers carry preconditions to VERIFY before applying.
-
-    KEY (validated on the 3B/8k demo): GPU mean ~100% does NOT by itself mean compute-bound.
-    If KV is full AND the server is preempting, a chunk of that 100% is WASTED on
-    recompute — relieving KV (fp8) recovers it as real throughput (demo: +52%, KV 100%->71%,
-    2 preemptions->0). So the KV-pressure check must precede the compute-pinned check."""
-    if not saturated:
-        if gpu_mean < GPU_LOW_PCT and kv_peak < 0.5:
-            return (
-                "low_utilization_latency",
-                "speculative_decoding",
-                ["latency_slo_present", "itl_sensitive", "qps_low"],
-                "low QPS with spare GPU/KV: speculative decoding (EAGLE/MTP) can cut ITL "
-                "1.5-3x at low concurrency; gains vanish at high QPS, so apply ONLY under a "
-                "latency SLO, never as a throughput lever",
-            )
+    # Legacy positional arguments remain accepted, but no boolean can certify health.
+    if load_state == "healthy":
+        return "no_load_pressure", "none", [], "No load pressure observed in this window; headroom and SLO compliance are separate questions."
+    if load_state == "overloaded" and kv_peak is not None and kv_peak >= KV_FULL and preemptions is not None and preemptions > 0:
         return (
-            "underutilized",
-            "none",
-            [],
-            "server keeps up (TTFT stable); the vLLM default is already adequate here",
+            "kv_pressure", "kv_cache_dtype=fp8",
+            ["engine_model_hardware_support_verified", "representative_quality_gate_passed",
+             "long_context_accuracy_verified", "controlled_canary_and_rollback_required"],
+            "Aligned KV pressure and preemption nominate an fp8 KV canary. Event counts do not measure recompute waste or predict a throughput gain.",
         )
-    # KV-pressure recompute waste: relievable by fp8/offload even at ~100% GPU.
-    if kv_peak >= KV_FULL and (preemptions or 0) > 0:
-        return (
-            "kv_capacity_bound_decode",
-            "kv_cache_dtype=fp8",
-            ["model_attention_not_sliding_window", "model_head_dim_ne_256",
-             "long_context_accuracy_verified"],
-            "KV is full and the server is PREEMPTING (recompute waste burning GPU cycles). "
-            "Halving KV bytes (fp8) frees blocks, cuts preemption, and converts wasted "
-            "recompute into throughput — demonstrated +52% on 3B/8k. CAVEATS: hybrid/sliding-"
-            "window models gain little; head_dim=256 can regress prefill; and fp8 KV can "
-            "SILENTLY collapse long-context (>~100k) accuracy unless two-level accumulation "
-            "is used — a KL/accuracy check MUST gate apply on long-context work",
-        )
-    if gpu_mean >= GPU_PINNED_PCT:
-        return (
-            "compute_bound",
-            "none",
-            [],
-            "GPU is compute/bandwidth-pinned with no KV-preemption waste to reclaim; "
-            "concurrency levers cannot raise throughput. Needs quantization / smaller "
-            "model / more GPUs",
-        )
-    if kv_peak >= KV_FULL:
-        if decode_heavy:
-            return (
-                "kv_capacity_bound_decode",
-                "kv_cache_dtype=fp8",
-                ["model_attention_not_sliding_window", "model_head_dim_ne_256",
-                 "workload_decode_dominated",
-                 "long_context_accuracy_verified"],
-                "KV limits concurrency with GPU headroom; fp8 KV (~54% of BF16 bytes) should "
-                "raise concurrent sequences ~30-50% at similar ITL. CAVEATS: hybrid/sliding-"
-                "window models gain little decode speedup; head_dim=256 can regress prefill; "
-                "and fp8 KV can SILENTLY collapse long-context (>~100k tok) retrieval accuracy "
-                "(e.g. 91%->13% on needle-in-haystack) unless two-level FP32 accumulation is "
-                "used — so a KL-divergence/accuracy check MUST gate apply on long-context work",
-            )
-        return (
-            "kv_capacity_bound_prefill",
-            "max_num_batched_tokens_lower",
-            ["chunked_prefill_enabled", "prefill_bursts_disrupting_decode"],
-            "KV-bound but prefill bursts disrupt decode ITL; lowering max_num_batched_tokens "
-            "(e.g. 512-1024) reduces prefill interference and improves ITL, at slightly worse "
-            "TTFT — a genuine tradeoff, valid only when prefill is the disruptor",
-        )
-    return (
-        "other_bottleneck",
-        "none",
-        [],
-        "saturated with spare GPU and KV — likely scheduler/client/CPU bound; no "
-        "weights-level config lever implied",
-    )
+    return "unknown", "none", [], f"Load state is {load_state}; evidence does not identify an actionable bottleneck. Collect aligned signals; do not infer compute-bound from GPU utilization."
 
 
 class BottleneckDiagnosis(SchemaModel):
-    """Self-validating regime diagnosis + mechanistic lever recommendation."""
-
-    diagnosis_version: Literal["0.2.0"] = "0.2.0"
-    gpu_utilization_mean_pct: float = Field(ge=0)
-    kv_cache_usage_peak_perc: float = Field(ge=0)
+    diagnosis_version: Literal["0.3.0"] = "0.3.0"
+    gpu_utilization_mean_pct: Optional[float] = Field(default=None, ge=0, le=100, allow_inf_nan=False)
+    kv_cache_usage_peak_perc: Optional[float] = Field(default=None, ge=0, le=1, allow_inf_nan=False)
     saturated: bool
     decode_heavy: bool
-    preemptions: Optional[int] = None
-    saturation_growth_ratio: Optional[float] = None
-    achieved_throughput_rps: Optional[float] = None
-    offered_rate_qps: Optional[float] = None
+    preemptions: Optional[int] = Field(default=None, ge=0)
+    saturation_growth_ratio: Optional[float] = Field(default=None, ge=0, allow_inf_nan=False)
+    achieved_throughput_rps: Optional[float] = Field(default=None, ge=0, allow_inf_nan=False)
+    offered_rate_qps: Optional[float] = Field(default=None, ge=0, allow_inf_nan=False)
+    load_assessment: Optional[LoadAssessment] = None
     regime: Regime
     recommended_lever: str
     lever_preconditions: list[str]
     predicted_effect: str
 
+    @property
+    def load_state(self) -> LoadState:
+        return self.load_assessment.state if self.load_assessment is not None else "indeterminate"
+
     @model_validator(mode="after")
     def _check(self) -> "BottleneckDiagnosis":
-        regime, lever, preconds, effect = _classify(
-            self.gpu_utilization_mean_pct, self.kv_cache_usage_peak_perc,
-            self.saturated, self.decode_heavy, self.preemptions,
-        )
-        if (self.regime, self.recommended_lever, self.lever_preconditions, self.predicted_effect) != (
-            regime, lever, preconds, effect
-        ):
+        if self.saturated != (self.load_state == "overloaded"):
+            raise ValueError("diagnosis is inconsistent with its signals: load state")
+        e = self.load_assessment.evidence if self.load_assessment is not None else None
+        signals = (self.gpu_utilization_mean_pct, self.kv_cache_usage_peak_perc, self.preemptions)
+        expected_signals = (None, None, None) if e is None else (e.gpu_utilization_mean_pct, e.kv_cache_usage_peak_perc, e.preemptions)
+        if signals != expected_signals:
+            raise ValueError("diagnosis is inconsistent with its signals: unaligned telemetry")
+        expected = _classify(signals[0], signals[1], self.saturated, self.decode_heavy,
+                             self.preemptions, load_state=self.load_state)
+        if (self.regime, self.recommended_lever, self.lever_preconditions, self.predicted_effect) != expected:
             raise ValueError("diagnosis is inconsistent with its signals")
         return self
 
 
-def diagnose(result: ExperimentResult) -> BottleneckDiagnosis:
-    """Diagnose the bottleneck of a measured run from telemetry + saturation."""
-    if result.telemetry is None or result.aggregates is None:
-        raise ValueError("diagnosis requires telemetry and aggregates")
-    t = result.telemetry
+def diagnose(result: ExperimentResult, *, load_evidence: Optional[LoadEvidence] = None) -> BottleneckDiagnosis:
+    if load_evidence is not None and load_evidence.experiment_id != result.config.experiment_id:
+        raise ValueError("load evidence experiment ID mismatch")
+    assessment = assess_load_state(result.measurements, evidence=load_evidence)
+    e = assessment.evidence
+    gpu, kv, preemptions = ((None, None, None) if e is None else
+                           (e.gpu_utilization_mean_pct, e.kv_cache_usage_peak_perc, e.preemptions))
     w = result.config.workload
-    sat = detect_saturation(result.measurements)
-    decode_heavy = w.output_tokens >= w.prompt_tokens  # long outputs, modest inputs
-    regime, lever, preconds, effect = _classify(
-        t.gpu_utilization_mean_pct, t.kv_cache_usage_peak_perc, sat.saturated,
-        decode_heavy, t.preemptions_total,
+    saturated = assessment.state == "overloaded"
+    decode_heavy = w.output_tokens >= w.prompt_tokens  # descriptive only, not causal
+    regime, lever, preconditions, effect = _classify(
+        gpu, kv, saturated, decode_heavy, preemptions, load_state=assessment.state,
     )
     return BottleneckDiagnosis(
-        gpu_utilization_mean_pct=t.gpu_utilization_mean_pct,
-        kv_cache_usage_peak_perc=t.kv_cache_usage_peak_perc,
-        preemptions=t.preemptions_total,
-        saturated=sat.saturated,
-        decode_heavy=decode_heavy,
-        saturation_growth_ratio=sat.growth_ratio,
-        achieved_throughput_rps=result.aggregates.throughput_requests_per_s,
-        offered_rate_qps=w.request_rate_qps,
-        regime=regime,
-        recommended_lever=lever,
-        lever_preconditions=preconds,
-        predicted_effect=effect,
+        gpu_utilization_mean_pct=gpu, kv_cache_usage_peak_perc=kv, preemptions=preemptions,
+        saturated=saturated, decode_heavy=decode_heavy, load_assessment=assessment,
+        saturation_growth_ratio=detect_saturation(result.measurements).growth_ratio,
+        achieved_throughput_rps=(result.aggregates.throughput_requests_per_s if result.aggregates else None),
+        offered_rate_qps=w.request_rate_qps, regime=regime, recommended_lever=lever,
+        lever_preconditions=preconditions, predicted_effect=effect,
     )
