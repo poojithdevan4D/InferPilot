@@ -1,9 +1,8 @@
-"""Reproduce InferPilot's fp8-preemption law on the stored real evidence (GPU-free).
+"""Inspect the measured fp8/preemption pattern in legacy stored evidence (GPU-free).
 
-For each (model, GPU, workload) it loads the measured baseline (bf16 KV) and the fp8 KV
-run, prints InferPilot's DIAGNOSIS of the baseline, and the MEASURED fp8 outcome — showing
-that the diagnosis correctly predicts BOTH where fp8 wins and where it does nothing. The
-discriminator is preemptions, not KV-fullness.
+These bundles predate aligned ``LoadEvidence``. The current fail-closed diagnosis therefore
+returns ``unknown``; this script reports that honestly alongside the historical measured
+association. It does not retroactively treat scalar telemetry as causal evidence.
 
     uv run python scripts/fp8_law_demo.py
 """
@@ -36,9 +35,9 @@ def _load(pattern: str) -> ExperimentResult | None:
 
 
 def main() -> int:
-    print("InferPilot fp8-preemption law — diagnosis vs measured outcome (real evidence)\n")
-    print(f"{'case':34} {'diagnosis(baseline)':26} {'lever':14} {'KV/preempt':11} {'fp8 Δthru':9} verdict")
-    print("-" * 108)
+    print("InferPilot fp8/preemption finding — legacy measured evidence\n")
+    print(f"{'case':34} {'current diagnosis':18} {'KV/preempt':11} {'fp8 Δthru':9} evidence status")
+    print("-" * 100)
     for label, base_g, fp8_g in CASES:
         base, fp8 = _load(base_g), _load(fp8_g)
         if base is None or fp8 is None or fp8.status.value != "completed":
@@ -46,15 +45,12 @@ def main() -> int:
             continue
         d = diagnose(base)
         gain = (fp8.aggregates.throughput_requests_per_s / base.aggregates.throughput_requests_per_s - 1) * 100
-        recommends_fp8 = d.recommended_lever == "kv_cache_dtype=fp8"
-        # a "win" is a material throughput gain; predicted iff diagnosis recommends fp8
-        material = gain >= 15
-        correct = recommends_fp8 == material
         kvpre = f"{base.telemetry.kv_cache_usage_peak_perc:.2f}/{base.telemetry.preemptions_total}"
-        print(f"{label:34} {d.regime:26} {d.recommended_lever:14} {kvpre:11} {gain:+7.0f}%  "
-              f"{'✓ correct' if correct else '✗ MISMATCH'}")
-    print("\nLaw: preemptions>0 (not KV-fullness) => KV-bound => fp8 wins (+40-52%).")
-    print("     preemptions=0 => compute/decode-bound => fp8 does nothing (~0%); advisor abstains.")
+        status = "legacy bundle: no aligned load evidence"
+        print(f"{label:34} {d.regime:18} {kvpre:11} {gain:+7.0f}%  {status}")
+    print("\nObserved pattern: preempting cases gained +40–53%; the zero-preemption case gained +2%.")
+    print("This is a post-hoc empirical heuristic, not a validated diagnosis on these legacy bundles.")
+    print("New runs embed aligned request/queue/token evidence before the advisor names a load state.")
     return 0
 
 

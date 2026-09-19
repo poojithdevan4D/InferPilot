@@ -1,59 +1,92 @@
-# InferPilot — a senior ML-systems-engineer for LLM serving, in a box
+# InferPilot — evidence-first diagnosis for LLM inference
 
-**What it is.** Given (Model + Hardware + Workload + SLO), InferPilot **diagnoses the serving
-bottleneck from measured telemetry, predicts which lever (if any) can help, verifies with a
-fail-closed canary, and abstains when physics says no config can win** — recommending the right
-hardware instead. It answers the operator's real questions: *am I on the right GPU? should I tune or
-scale? can I turn on fp8 without breaking my SLO? what's my cost-per-token?*
+## The problem
 
-**Why it's different.** It is not a knob-sweeper hoping to beat defaults (a marginal, mostly-dead
-game — vLLM's scheduler already fits concurrency to KV). It reasons from the physics of the bottleneck,
-carries mechanistic predictions, and every recommendation is a self-validating, tamper-evident,
-human-readable artifact. **Abstention is a first-class output**, not a failure.
+LLM-serving changes are easy to benchmark badly. A faster run may have used different prompts,
+arrivals, engine behavior, or failed requests. GPU utilization alone does not identify a bottleneck,
+and an overloaded result cannot certify capacity or cost under an SLO.
 
-## What it does, in one call
+InferPilot turns benchmark evidence into auditable decisions. It verifies configuration and workload
+identity, preserves raw measurements, binds derived reports to their inputs, and abstains whenever the
+evidence cannot support a diagnosis.
 
-`recommend_plan(measured_baseline, slo, economics, model)` →
+## What is implemented
 
+- A reproducible vLLM runner with deterministic workloads, open- and closed-loop arrivals, warm-up,
+  monotonic timings, telemetry, cleanup, and immutable run bundles.
+- Aligned `LoadEvidence`: arrivals, exits, failures, useful token demand/delivery, queue state, GPU/KV
+  samples, and preemption deltas share one measured window and obey request conservation.
+- Conservative load assessment with four outcomes: `healthy`, `near_capacity`, `overloaded`, and
+  `indeterminate`.
+- Strict comparison, SLO, blocked-study, search-replay, cost, quality, and controller contracts whose
+  persisted conclusions are recomputed and checked when loaded.
+- Honest failure artifacts, invalid-study preservation, exact schema gates, provenance fingerprints,
+  and a locked GPU-free test/build path.
+
+## The research finding
+
+Across a small legacy matrix of Qwen2.5 3B/7B/14B and Mistral-7B runs on A10/A100 GPUs, fp8 KV was
+associated with **+40–53% throughput** in KV-full, preempting cases and **+1.7%** in a no-preemption
+case. The strongest 3B/A10 result measured **+52% goodput, TTFT −56%, and cost/output-token −34%**.
+
+This is an empirical, post-hoc heuristic—not a causal law or a validated prediction. The quality
+smoke test also found a real distributional shift: factual QA and 14k needle checks showed no detected
+regression, but the teacher-forced-KL gate failed.
+
+## The engineering result that matters
+
+Expert review exposed that the first diagnosis path inferred too much from aggregate latency and
+GPU/KV snapshots. The response was not to defend the headline. The project was redesigned so new runs
+collect aligned request, queue, token, and preemption evidence. Legacy runs remain valid measurements,
+but the current advisor returns `unknown` on them because the necessary evidence does not exist.
+
+That gives the project a falsifiable boundary:
+
+```text
+complete aligned evidence + conserved request flow
+  -> load assessment
+  -> diagnosis when supported
+
+missing or contradictory evidence
+  -> indeterminate
+  -> no recommendation
 ```
-DIAGNOSIS: kv_capacity_bound_decode (gpu_mean 100%, kv_peak 1.00, saturated, preemptions>0).
-PREDICTION: KV full + server preempting = recompute waste burning GPU; fp8 KV frees blocks,
-            cuts preemption, converts waste into throughput (~+40-50%).
-RECOMMENDATION: TUNE kv_cache_dtype=fp8.  VERIFY FIRST: not sliding-window; head_dim!=256;
-            long_context_accuracy_verified.
-VERIFICATION: apply only after a fail-closed Pareto canary.
+
+Held-out diagnostic validation on redesign-native GPU evidence is the next proof point.
+
+## Why this is a useful engineering artifact
+
+- **Experimental discipline:** deterministic arrivals and prompts, declared varied fields, blocked
+  seeds, preregistered execution/acceptance rules, and preserved negative results.
+- **Systems correctness:** monotonic clocks, always-cleanup lifecycle, structured failures, engine
+  configuration verification, and measured-window provenance.
+- **Data-contract rigor:** exact version gates, backward compatibility tests, tamper detection, and
+  recomputation of persisted decisions.
+- **Research honesty:** measured observations, mechanism hypotheses, and advisor claims are kept
+  separate; insufficient evidence becomes abstention.
+- **Operational framing:** comparisons optimize goodput/cost under an explicit SLO and keep model
+  quality as a mandatory independent gate.
+
+## Five-minute reviewer path
+
+```bash
+uv sync --extra dev --locked
+uv run python scripts/aligned_load_demo.py
+uv run python scripts/fp8_law_demo.py
+uv run python scripts/cost_rescue_demo.py
+uv run --extra dev pytest -q
 ```
-…or, when the GPU is genuinely pinned with nothing to reclaim:
-```
-DIAGNOSIS: compute_bound.  RECOMMENDATION: SCALE — no config lever helps; sustains 0.51 qps
-under SLO on 1 GPU; cheapest fit to hold your load = A100-80GB @ $2.50/hr; ~$2.23/1M tokens.
-```
 
-## The proof
+Then read:
 
-Measured on rented cloud GPUs (Modal), single-variable, fail-closed:
+1. `docs/blog/when-does-fp8-kv-actually-help.md` — result, critique, and claim boundary.
+2. `docs/CRITIQUE-RESPONSE.md` — independent objections and the resulting redesign.
+3. `src/inferpilot/saturation.py` — fail-closed load-state contract.
+4. `src/inferpilot/runner/load_evidence.py` — aligned evidence construction.
+5. `docs/experiments/` — preregistrations, studies, invalid runs, and honest negatives.
 
-| Regime | Model / GPU / workload | Result |
-|---|---|---|
-| KV-pressure (preempting) | 3B / A10 / 8k ctx | **fp8 KV: +52% throughput**, TTFT 80s→41s, TPOT 146→120ms |
-| KV-pressure (preempting) | 14B / A100-40GB / long ctx | **fp8 KV: +41% throughput** (mechanism consistent) |
-| Compute-bound | 7B & 14B, several workloads | correctly diagnosed "no lever — scale"; a false dev-set win was caught by held-out |
+## Current boundary
 
-The system also **self-corrected**: it first mis-called the 3B case compute-bound; the preemption
-signal exposed the error; the model was refined to be preemption-aware and now predicts the +52%.
-That loop — diagnose → predict → verify → **refine on a measured contradiction** — is the moat.
-
-## The value
-
-- **Stop overprovisioning.** "Compute-bound → scale to the cheapest GPU that meets your SLO" replaces
-  hours of guesswork and idle-GPU waste ($10k+/mo at fleet scale).
-- **Capture the wins that exist.** fp8 KV is +40–52% in KV-pressured regimes — but only there, and only
-  on compatible models; InferPilot knows the difference and guards the fp8 long-context accuracy trap.
-- **Trust.** Every action is a mechanistic, replayable artifact, not a black-box RL knob.
-
-## Honest limits
-
-Validated across a handful of models/GPUs, throughput/latency only (accuracy gate specified but not yet
-run on long-context fp8). Generality, richer levers (KV offloading, PD-disaggregation, spec-decode),
-and simulation-based search (Vidur) + sequential-test canaries (SPRT) are the roadmap. The reasoning
-spine is built and self-validating (420+ tests).
+InferPilot is a research-grade offline benchmarking and decision library. It is not a production
+control plane, its fp8 hypothesis has not passed a preregistered held-out diagnostic campaign, and its
+test suite proves implementation/contract behavior rather than deployment-wide empirical accuracy.

@@ -1,42 +1,50 @@
 # InferPilot
 
-**A senior LLM-inference engineer, in a box.** Given a measured serving run
-(Model + Hardware + Workload + SLO), InferPilot **diagnoses the bottleneck, tells you whether to
-tune, scale, or leave it alone — with the mechanism and the $/token — and refuses to act where
-physics (or output quality) forbids.** It does in minutes what takes a senior infra engineer days
-of benchmarking, and it won't fish or fool you. Every recommendation is a self-validating,
-tamper-evident, human-readable artifact.
+**Evidence-first diagnosis and optimization for LLM inference.** InferPilot is a research-grade
+benchmarking and decision library that measures serving behavior, checks provenance and configuration
+fidelity, diagnoses only when aligned evidence supports a claim, and otherwise abstains. Persisted
+reports are strict, self-validating, and tamper-evident.
 
 ## The headline result (all measured on rented cloud GPUs, reproducible)
 
-**An empirical, two-sided heuristic for fp8 KV cache** (a hypothesis — measured, but not yet a
-preregistered held-out result), observed across **4 models × 2 families × 2 GPUs**:
+**An empirical fp8-KV heuristic**—measured but not yet confirmed by the preregistered held-out
+protocol—was observed across **4 models × 2 families × 2 GPUs**:
 
-| Regime (from telemetry) | InferPilot says | Measured outcome |
-|---|---|---|
-| KV full **+ preempting** (3B/7B/14B) | tune → `kv_cache_dtype=fp8` | **+40–52% throughput** |
-| compute-bound (KV low, no preempt) | keep default — no lever | **+1.7% (correctly nothing)** |
+| Legacy observed condition | Measured outcome |
+|---|---|
+| KV full **+ preempting** (3B/7B/14B) | fp8 KV: **+40–53% throughput** |
+| no preemptions, shorter decode workload | fp8 KV: **+1.7%** |
 
-The discriminator is **preemptions**, not GPU utilization (both regimes show GPU ~100%). And the
-fp8 win is **quality smoke-tested** four ways: 0/16 factual-QA regressions and needle-in-haystack
-5/5 at 14k — BUT the teacher-forced-KL preflight **failed** (mean >0.01, p99 0.39: a real distributional
-shift). So quality impact is **task-dependent and unverified beyond these small smoke tests**; >100k is
-gated. We do not claim 'lossless'.
+The association follows **preemptions**, not GPU utilization (both cases show GPU near 100%). It is a
+post-hoc heuristic, not a causal law. Quality smoke tests found 0/16 factual-QA regressions and 5/5
+needle retrieval at 14k, while the teacher-forced-KL preflight **failed** (mean >0.01, p99 0.39),
+showing real distributional shift. InferPilot therefore does not call fp8 KV “lossless.”
 
-**Cost-to-serve rescue** (`scripts/cost_rescue_demo.py`): a drowning 3B/A10 deployment →
-diagnose → fp8 → **+52% goodput, TTFT −56%, −34% $/token (quality smoke-tested), one flag, zero
-new hardware.**
+The strongest measured case was a 3B/A10 run: fp8 KV delivered **+52% goodput, TTFT −56%, and
+−34% measured cost per output token**. Those legacy bundles predate aligned load evidence, so the
+redesigned advisor now returns `unknown` on them instead of reverse-engineering a confident diagnosis.
+
+## Five-minute review
 
 ```bash
-uv run python scripts/cost_rescue_demo.py    # the rescue story, from real evidence
-uv run python scripts/fp8_law_demo.py        # 4/4 diagnosis-vs-measured, GPU-free
-uv run --extra dev pytest -q                 # 435 tests (contract self-consistency,
-                                             #   NOT diagnostic accuracy on real deployments)
+uv sync --extra dev --locked
+uv run python scripts/aligned_load_demo.py   # healthy / overloaded / abstain, GPU-free
+uv run python scripts/fp8_law_demo.py        # real legacy measurements + evidence status
+uv run python scripts/cost_rescue_demo.py    # measured economics; no retroactive diagnosis
+uv run --extra dev pytest -q                 # 477 tests; no GPU required
 ```
+
+For a technical review, read these in order:
+
+1. [`docs/blog/when-does-fp8-kv-actually-help.md`](docs/blog/when-does-fp8-kv-actually-help.md) — finding and mechanism hypothesis.
+2. [`docs/CRITIQUE-RESPONSE.md`](docs/CRITIQUE-RESPONSE.md) — what expert review invalidated and how the design changed.
+3. [`src/inferpilot/saturation.py`](src/inferpilot/saturation.py) — conservative aligned-window load contract.
+4. [`src/inferpilot/runner/load_evidence.py`](src/inferpilot/runner/load_evidence.py) — instrumentation for diagnosis-capable future runs.
+5. [`docs/experiments/`](docs/experiments/) — preregistrations, positive results, invalid studies, and honest negatives.
 
 ## What it does (the reasoning pipeline)
 
-`detect_saturation` → `BottleneckDiagnosis` → `plan_optimization` (abstain unless winnable) →
+`LoadEvidence` → `LoadAssessment` → `BottleneckDiagnosis` → `plan_optimization` (abstain unless winnable) →
 `analyze_fit` / `recommend_scale` (which GPU/TP/precision) → `CapacityAdvisory` (tune/scale/accept +
 $/token) → quality gate (`KLQualityGate` + `NeedleQualityGate`) → `compare_configs` (fail-closed
 Pareto) → `controller` 0.3.0 (apply/rollback). Ingests real traffic via `WorkloadTrace`.
@@ -45,23 +53,24 @@ Pareto) → `controller` 0.3.0 (apply/rollback). Ingests real traffic via `Workl
 partly post-hoc matrix (no preregistered held-out validation yet); all wins are in *overloaded* regimes
 (a goodput-ceiling lever, not a low-load speedup); quality is smoke-tested only (KL preflight failed);
 synthetic traffic; vLLM is the only fully-wired engine (SGLang throughput-only); and this is a rigorous
-reasoning **library + evidence, not a running product**. Full measured evidence in `docs/experiments/`,
-methodology in `docs/design/`.
+reasoning **library + evidence, not a running product**. Full measured evidence is in
+`docs/experiments/`; methodology is in `docs/design/`. Existing committed GPU bundles predate
+`LoadEvidence`: they reproduce measurements but cannot certify the redesigned diagnosis.
 
 ---
 
 *Original vision + history below.* Full vision:
 [`InferPilot — Shared Project Context.md`](./InferPilot%20%E2%80%94%20Shared%20Project%20Context.md).
 
-## Status: Milestone 1 — contracts + first runner slice
+## Status: evidence pipeline implemented; held-out diagnostic validation pending
 
 This repository contains the validated, serializable data contracts **and** the first
 vertical slice of the benchmark runner (`inferpilot.runner`): start a vLLM server, run a
 fixed characterization workload, measure raw per-request timings, aggregate, and store one
 immutable result. The repository now also contains evidence comparison, explicit SLO
-decisions, and outcome-blind offline replay for conventional search baselines. There is
-deliberately still **no live optimizer**, distributed execution, database, web UI, or
-LLM-driven decision logic.
+decisions, and outcome-blind offline replay for conventional search baselines. There is deliberately
+still **no production control-plane integration, distributed executor, database, or web UI**.
+Controller and recommendation logic are offline, evidence-gated contracts.
 
 The runner does **not** wrap or parse `vllm bench` — InferPilot owns its raw request
 measurements end to end.
@@ -89,10 +98,10 @@ verify resolved vLLM configuration against requested configuration
 warm-up requests (excluded)  →  measured workload                   # runner.client
       │  (async streaming /v1/completions, monotonic TTFT/e2e/TPOT)
       ▼
-AggregateMetrics + measured-window GPU/KV telemetry
+AggregateMetrics + measured-window GPU/KV telemetry + aligned LoadEvidence
       │
       ▼
-ExperimentResult  (config + environment + measurements + aggregates + status/failure)
+ExperimentResult  (config + environment + measurements + aggregates + load evidence + status/failure)
       │
       ▼
 write immutable result/warmup/telemetry/lifecycle artifacts + logs
@@ -127,6 +136,7 @@ src/inferpilot/
   workload.py      # WorkloadSpec
   measurements.py  # RequestMeasurement (per-request ground truth)
   results.py       # AggregateMetrics, ExperimentResult
+  saturation.py    # conserved aligned-window load assessment + legacy TTFT trend
   status.py        # ExperimentStatus, FailureRecord
   runner/
     defaults.py      # pinned runtime decisions (vLLM 0.29.0, model + revision, py3.12)
@@ -137,6 +147,7 @@ src/inferpilot/
     artifacts.py     # unique run dir + immutable result JSON
     effective_config.py # startup-log parsing + requested/resolved fidelity checks
     telemetry.py     # measured-window NVML + vLLM KV-cache sampling
+    load_evidence.py # bind requests, useful token work, queue, and telemetry to one window
     orchestrator.py  # glue: COMPLETED / FAILED / OOM / TIMEOUT
     __main__.py      # CLI: python -m inferpilot.runner <config.json>
   comparison/
@@ -177,7 +188,7 @@ reproducible). Exact setup and test commands:
 ```bash
 # 1. Install uv (once): https://docs.astral.sh/uv/getting-started/installation/
 # 2. Create/refresh the locked environment (base + dev tools):
-uv sync --extra dev
+uv sync --extra dev --locked
 
 # 3. Run the full test suite:
 uv run --extra dev pytest
