@@ -105,7 +105,7 @@ uv sync --extra dev --locked
 uv run python scripts/aligned_load_demo.py   # healthy / overloaded / abstain contract
 uv run python scripts/fp8_law_demo.py        # legacy measurements + current evidence status
 uv run python scripts/cost_rescue_demo.py    # measured economics, no retroactive diagnosis
-uv run --extra dev pytest -q                 # 477 tests
+uv run --extra dev pytest -q                 # 482 tests
 ```
 
 The interesting claim is not that a script can print “turn on fp8.” It is that the project preserves

@@ -59,7 +59,9 @@ are observed.
      claim names. Do not label a proxy `recompute_burden` without validation.
 2. **Run a metrics-capability preflight only.** Start each pinned engine version, capture the exposed
    metric families, and verify counter monotonicity/reset behavior. This is instrumentation QA, not an
-   outcome run.
+   outcome run. The name-level, fail-closed preflight is implemented as
+   `python -m inferpilot.runner.metrics_capabilities http://127.0.0.1:8000`; semantic validation of
+   any newly instrumented counters remains required.
 3. **Make the workload executable.** Add deterministic per-request length traces and bind their digest,
    or replace the lognormal language in a versioned protocol with fixed lengths already supported.
 4. **Choose ITL or TPOT.** If ITL p95 remains an SLO, retain monotonic timestamps for every output token
