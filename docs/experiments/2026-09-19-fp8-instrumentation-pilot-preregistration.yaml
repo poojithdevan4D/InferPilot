@@ -59,6 +59,14 @@ total_registered_cells: 6
 
 instrumentation:
   metric_contract: FP8_MECHANISM_REQUIREMENTS
+  mechanism_metrics_path: pinned_small_vllm_patch
+  upstream_tag: v0.29.0
+  upstream_commit: 98dff2a81d747d1dba01a47f939f48c3526d4206
+  fork_commit: MUST_BE_FROZEN_BEFORE_GPU_CANARY
+  patch_diff_sha256: MUST_BE_FROZEN_BEFORE_GPU_CANARY
+  container_image_digest: MUST_BE_FROZEN_BEFORE_GPU_CANARY
+  iteration_logging_flag: --enable-logging-iteration-details
+  stock_logging_role: cross_check_not_source_of_truth
   require_capability_ready: true
   require_semantic_canary: true
   recompute_burden_definition: >-
