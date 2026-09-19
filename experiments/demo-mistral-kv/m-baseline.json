@@ -1,14 +1,14 @@
 {
   "schema_version": "0.5.0",
-  "experiment_id": "g7d-dev-qps4-a61-seq64",
-  "name": "g7d-dev-qps4-a61-seq64",
-  "description": "Decode-heavy Phase-2 crossover development cell.",
+  "experiment_id": "mistral-baseline",
+  "name": "mistral-baseline",
+  "description": "Non-Qwen confirmation: Mistral-7B-v0.3/A10/4k-ctx KV-pressure; baseline vs fp8.",
   "engine": {
-    "model": "Qwen/Qwen2.5-7B-Instruct",
-    "revision": "a09a35458c702b33eeacc393d103063234e8bc28",
+    "model": "mistralai/Mistral-7B-Instruct-v0.3",
+    "revision": "c170c708c41dac9275d15a8fff4eca08d52bab71",
     "dtype": "auto",
-    "max_model_len": 1024,
-    "max_num_seqs": 64,
+    "max_model_len": 5120,
+    "max_num_seqs": null,
     "max_num_batched_tokens": null,
     "gpu_memory_utilization": 0.9,
     "kv_cache_dtype": "auto",
@@ -19,10 +19,10 @@
     "extra_args": {}
   },
   "workload": {
-    "name": "g7d-dev-qps4",
-    "num_requests": 96,
+    "name": "demo-mistral-4k",
+    "num_requests": 48,
     "warmup_requests": 4,
-    "prompt_tokens": 128,
+    "prompt_tokens": 4096,
     "output_tokens": 512,
     "request_rate_qps": 4.0,
     "arrival_pattern": "poisson-v1",
@@ -32,14 +32,13 @@
     "ignore_eos": true,
     "seed": 0,
     "prompt_seed": 7007,
-    "arrival_seed": 61
+    "arrival_seed": 60
   },
   "slo": null,
   "seed": 0,
   "tags": [
-    "gpu-campaign",
-    "qwen2.5-7b",
-    "decode-heavy",
-    "development"
+    "demo",
+    "mistral-7b",
+    "kv-bound"
   ]
 }
