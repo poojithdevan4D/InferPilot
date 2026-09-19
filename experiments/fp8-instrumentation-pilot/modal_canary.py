@@ -37,8 +37,10 @@ except IndexError:
 
 image = modal.Image.from_registry(
     IMAGE,
-    add_python="3.12",
-    setup_dockerfile_commands=["ENTRYPOINT []"],
+    setup_dockerfile_commands=[
+        "RUN ln -s $(command -v python3) /usr/local/bin/python",
+        "ENTRYPOINT []",
+    ],
 )
 if WHEEL is not None:
     image = image.add_local_file(
