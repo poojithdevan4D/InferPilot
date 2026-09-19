@@ -7,7 +7,7 @@
     "model": "mistralai/Mistral-7B-Instruct-v0.3",
     "revision": "c170c708c41dac9275d15a8fff4eca08d52bab71",
     "dtype": "auto",
-    "max_model_len": 5120,
+    "max_model_len": 6144,
     "max_num_seqs": null,
     "max_num_batched_tokens": null,
     "gpu_memory_utilization": 0.9,

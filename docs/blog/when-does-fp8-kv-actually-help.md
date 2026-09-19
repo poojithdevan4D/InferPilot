@@ -10,12 +10,12 @@ Everything below is measured, single-variable, and reproducible. Every claim com
 
 ## The two-sided law
 
-We tested `kv_cache_dtype=fp8` vs bf16 KV on Qwen2.5 **3B, 7B, and 14B** across **A10 and A100**, in a
+We tested `kv_cache_dtype=fp8` vs bf16 KV on Qwen2.5 **3B, 7B, and 14B** across **A10 and A100**, plus **Mistral-7B-v0.3** (a different model family), in a
 KV-pressured regime and a compute-bound regime:
 
 | Regime (read from telemetry) | fp8 vs bf16 | Verdict |
 |---|---|---|
-| KV full **+ server preempting** (3B/7B/14B) | **+40% to +52% throughput** | real win |
+| KV full **+ server preempting** (3B/7B/14B, **Mistral-7B**) | **+40% to +52% throughput** | real win |
 | compute-bound (KV low, **no preemption**) | **+1.7%** (noise) | correctly nothing |
 
 The counter-intuitive part: **GPU utilization was ~100% in *both* regimes.** If you gate on "is the GPU
@@ -81,7 +81,7 @@ that meets your SLO."** Abstention is a first-class answer.
 
 ## Honest limits
 
-Validated on Qwen (a non-Qwen confirmation is in progress) + vLLM + a handful of GPUs. All wins are in
+Validated on Qwen 3B/7B/14B **and Mistral-7B** (+42%) + vLLM (and SGLang, throughput-only) + a handful of GPUs. All wins are in
 overloaded regimes (goodput-ceiling framing). >100k-context fp8, free-running long-horizon drift, and a
 telemetry-confirmed SGLang run are untested. This is rigorous open research + a working reasoning
 library — not a finished product.

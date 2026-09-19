@@ -219,3 +219,16 @@ and retrieval-intact — with a measurable-but-benign distributional shift. The 
 documented >~100k retrieval collapse (needs a bigger GPU / rope-scaled run), which InferPilot's
 `long_context_accuracy_verified` precondition explicitly gates. This is a *measured*, four-way quality
 verification — not a "trust me it's lossless."
+
+## Non-Qwen confirmation: Mistral-7B-v0.3 (2026-09-19)
+
+Different model family, same test (A10, 4k prompt / 512 output, KV-pressured):
+
+| Mistral-7B-v0.3 | throughput | ttft_p95 | kv_peak | preemptions | diagnosis |
+|---|---|---|---|---|---|
+| bf16 | 0.23 | 165 s | 1.00 | 6 | kv_capacity_bound_decode → fp8 |
+| fp8 | 0.32 (**+42%**) | 95 s | 1.00 | 9 | — |
+
+The fp8/preemption law holds on a non-Qwen family (+42%, within the +40–52% band; correctly diagnosed).
+Full validation matrix: Qwen2.5-3B (+52%), 7B (+40%), 14B (+43%), Mistral-7B-v0.3 (+42%) — 2 families,
+2 GPUs (A10/A100); plus SGLang +71% (throughput-only). Not a Qwen-only artifact.
