@@ -47,10 +47,11 @@ InferPilot refuses to, unless the per-window request/queue/token evidence actual
 
 ```bash
 uv sync --extra dev --locked
+uv run python scripts/instrumentation_dry_run.py # full fake-server evidence chain (~40 s)
 uv run python scripts/aligned_load_demo.py   # healthy / overloaded / abstain, GPU-free
 uv run python scripts/fp8_law_demo.py        # real legacy measurements + evidence status
 uv run python scripts/cost_rescue_demo.py    # measured economics; no retroactive diagnosis
-uv run --extra dev pytest -q                 # 482 tests; no GPU required
+uv run --extra dev pytest -q                 # 484 tests; no GPU required
 ```
 
 For a technical review, read these in order:
@@ -61,10 +62,14 @@ For a technical review, read these in order:
 4. [`src/inferpilot/runner/load_evidence.py`](src/inferpilot/runner/load_evidence.py) — instrumentation for diagnosis-capable future runs.
 5. [`docs/experiments/`](docs/experiments/) — preregistrations, positive results, invalid studies, and honest negatives.
 
-The next GPU milestone is intentionally blocked pending the
+The original 144-cell GPU milestone is intentionally blocked pending the
 [`fp8 held-out readiness audit`](docs/experiments/2026-09-19-fp8-heldout-readiness-audit.md): the
 registered mechanism study asks for exact recomputed-token, ITL, and variable-length workload evidence
-that the current runner does not yet collect. This prevents an expensive but scientifically unusable run.
+that the current runner does not yet collect. A smaller six-cell
+[`instrumentation pilot`](docs/experiments/2026-09-19-fp8-instrumentation-pilot-preregistration.yaml)
+is frozen behind an explicit
+[`GO / NO-GO checklist`](docs/experiments/2026-09-19-fp8-instrumentation-pilot-checklist.md).
+This prevents an expensive but scientifically unusable run.
 
 ## What it does (the reasoning pipeline)
 

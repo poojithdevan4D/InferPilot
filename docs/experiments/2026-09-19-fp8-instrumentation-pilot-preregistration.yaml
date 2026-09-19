@@ -1,0 +1,150 @@
+study:
+  id: inferpilot-fp8-instrumentation-pilot-v1
+  status: preregistered_blocked_pending_metric_gates
+  purpose: >-
+    Decide whether exact recomputation instrumentation and the observed fp8 effect are strong
+    enough to justify the larger held-out campaign. This is a mechanism/instrumentation pilot,
+    not confirmatory validation of a general fp8 rule.
+  checklist: 2026-09-19-fp8-instrumentation-pilot-checklist.md
+  outcome_data_inspected_at_freeze: false
+
+scope:
+  model: Qwen/Qwen2.5-3B-Instruct
+  model_revision: aa8e72537993ba99e69dfaafa59ed015b17504d1
+  gpu: A10G
+  engine: vllm
+  engine_version: 0.29.0
+  sampler_backend: pytorch
+  arms:
+    - id: bf16_kv
+      kv_cache_dtype: auto
+    - id: fp8_kv
+      kv_cache_dtype: fp8
+  fixed_engine_fields:
+    max_model_len: 9216
+    gpu_memory_utilization: 0.90
+    generation_config: vllm
+  only_varied_engine_field: kv_cache_dtype
+
+workload:
+  arrival_pattern: poisson-v1
+  request_rate_qps: 0.70
+  num_requests: 100
+  warmup_requests: 4
+  prompt_tokens: 7680
+  output_tokens: 512
+  temperature: 0.0
+  ignore_eos: true
+  request_timeout_s: 300
+  fixed_lengths_not_lognormal: true
+  note: >-
+    This pilot deliberately uses the runner's supported fixed-length contract. It makes no
+    variable-length or true per-token ITL claim; latency uses request-level TTFT and TPOT.
+
+paired_blocks:
+  - block: 1
+    prompt_seed: 9201
+    arrival_seed: 121
+    arm_order: [bf16_kv, fp8_kv]
+  - block: 2
+    prompt_seed: 9202
+    arrival_seed: 122
+    arm_order: [fp8_kv, bf16_kv]
+  - block: 3
+    prompt_seed: 9203
+    arrival_seed: 123
+    arm_order: [bf16_kv, fp8_kv]
+fresh_server_per_arm: true
+total_registered_cells: 6
+
+instrumentation:
+  metric_contract: FP8_MECHANISM_REQUIREMENTS
+  require_capability_ready: true
+  require_semantic_canary: true
+  recompute_burden_definition: >-
+    measured-window delta(recomputed_token_executions_total) divided by the sum of actual
+    prompt_tokens plus successful output_tokens in the complete request census
+  burden_is_not_preemption_count: true
+  aligned_window_required: true
+
+acceptance:
+  result_status: COMPLETED
+  successful_requests: 100
+  failed_requests: 0
+  effective_config_verified: true
+  load_evidence_required: true
+  coverage_complete: true
+  steady_state: true
+  minimum_arrivals: 100
+  minimum_window_seconds: 30
+  dispatch_drift_p95_ms_max: 10
+  metrics_capability_ready: true
+  lifecycle_pre_teardown_errors: 0
+  telemetry_complete: true
+  preserve_every_attempt: true
+
+outcomes:
+  primary: paired_throughput_tokens_per_s_ratio_fp8_over_bf16
+  mechanism:
+    - baseline_recompute_burden
+    - paired_recompute_burden_reduction_fraction
+  supporting:
+    - load_state
+    - kv_cache_usage_peak
+    - preemption_event_delta
+    - ttft_p95_ms
+    - tpot_p95_ms
+    - measured_window_seconds
+  aggregation:
+    performance: geometric_mean_of_three_paired_ratios
+    mechanism: median_of_three_paired_reduction_fractions
+  no_significance_or_confidence_claim: true
+
+decision:
+  go_to_larger_campaign_if_all:
+    - all_six_cells_accepted
+    - every_bf16_cell_is_overloaded_with_kv_peak_ge_0.95
+    - every_bf16_cell_has_recompute_burden_ge_0.10
+    - every_paired_throughput_ratio_ge_1.15
+    - geometric_mean_paired_throughput_ratio_ge_1.25
+    - median_recompute_burden_reduction_fraction_ge_0.50
+    - no_fp8_cell_worsens_success_or_registered_latency_metrics_by_more_than_10_percent
+  no_go_if_any:
+    - instrumentation_gate_fails
+    - nonretryable_cell_rejection
+    - any_paired_throughput_ratio_lt_1.0
+    - geometric_mean_paired_throughput_ratio_lt_1.15
+    - median_recompute_burden_reduction_fraction_lt_0.25
+    - recompute_counter_does_not_move_with_preemption
+  not_target_regime_if: any_bf16_cell_is_not_overloaded_or_kv_peak_lt_0.95
+  interpretation: >-
+    A GO authorizes the larger preregistered matrix; it does not validate a law, certify
+    quality, estimate maximum SLO capacity, or authorize deployment. NOT_TARGET_REGIME is an
+    informative design result and may not be repaired with post-hoc load or seed changes.
+
+retry_and_stop:
+  retry_once_only_for:
+    - sole_dispatch_drift_exceeded
+    - provider_launch_failure_before_measurement
+  no_seed_substitution: true
+  any_other_rejection_stops_before_outcome_comparison: true
+  preserve_failed_attempts: true
+
+budget:
+  currency: USD
+  expected_cells: 6
+  target_max: 5
+  hard_stop: 12
+  absolute_user_limit: 30
+  enforcement: >-
+    Before each cell, stop if accrued spend plus one worst-case registered cell could exceed
+    $12. Startup, semantic-canary, failed, and retry time all count. The $30 user limit is not
+    permission to exceed the lower protocol stop.
+
+excluded_claims:
+  - cross_model_or_cross_engine_generality
+  - maximum_slo_constrained_capacity
+  - true_per_token_itl_distribution
+  - variable_length_workload_behavior
+  - quality_safety
+  - production_or_deployment_readiness

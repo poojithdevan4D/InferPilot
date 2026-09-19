@@ -71,6 +71,7 @@ Held-out diagnostic validation on redesign-native GPU evidence is the next proof
 
 ```bash
 uv sync --extra dev --locked
+uv run python scripts/instrumentation_dry_run.py
 uv run python scripts/aligned_load_demo.py
 uv run python scripts/fp8_law_demo.py
 uv run python scripts/cost_rescue_demo.py
