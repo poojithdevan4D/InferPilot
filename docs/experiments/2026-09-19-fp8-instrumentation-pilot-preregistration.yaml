@@ -24,6 +24,10 @@ scope:
     max_model_len: 9216
     gpu_memory_utilization: 0.90
     generation_config: vllm
+    enable_prefix_caching: false
+    async_scheduling: false
+    speculative_decoding: disabled_no_speculative_model_or_flags
+    enable_logging_iteration_details: true
   only_varied_engine_field: kv_cache_dtype
 
 workload:
@@ -80,6 +84,10 @@ instrumentation:
     prompt_tokens plus successful output_tokens in the complete request census
   burden_is_not_preemption_count: true
   aligned_window_required: true
+  mechanism_evidence_artifact: mechanism-evidence.json
+  mechanism_evidence_report_version: 0.1.0
+  measured_window_log_slices_are_byte_bound: true
+  zero_gpu_canary: scripts/mechanism_canary_dry_run.py
 
 acceptance:
   result_status: COMPLETED
@@ -93,6 +101,7 @@ acceptance:
   minimum_window_seconds: 30
   dispatch_drift_p95_ms_max: 10
   metrics_capability_ready: true
+  mechanism_evidence_coverage_complete: true
   lifecycle_pre_teardown_errors: 0
   telemetry_complete: true
   preserve_every_attempt: true

@@ -46,6 +46,11 @@ class ResourceSample(SchemaModel):
         ge=0,
         description="Cumulative vLLM preemption counter at this sample.",
     )
+    recomputed_token_executions_total: Optional[float] = Field(
+        default=None,
+        ge=0,
+        description="Cumulative exact recomputed-token execution counter.",
+    )
 
 
 class ResourceTelemetry(SchemaModel):
@@ -73,7 +78,6 @@ class ResourceTelemetry(SchemaModel):
             "pressure and latency being traded for admission. None if unavailable."
         ),
     )
-
     error: Optional[str] = Field(
         default=None,
         description="Explicit record of any telemetry-collection failure(s); None if clean.",

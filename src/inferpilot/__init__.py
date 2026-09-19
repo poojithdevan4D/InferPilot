@@ -24,6 +24,13 @@ from .workload_profile import (
 )
 from .telemetry import ResourceSample, ResourceTelemetry
 from .measurements import RequestMeasurement
+from .mechanism import (
+    MechanismCanaryReport,
+    MechanismEvidence,
+    MechanismLogSlice,
+    SchedulerIteration,
+    evaluate_mechanism_canary,
+)
 from .results import AggregateMetrics, ExperimentResult
 from .deployment import (
     DeploymentOption,
@@ -100,6 +107,11 @@ __all__ = [
     "WorkloadProfile",
     "build_workload_profile",
     "RequestMeasurement",
+    "MechanismLogSlice",
+    "SchedulerIteration",
+    "MechanismEvidence",
+    "MechanismCanaryReport",
+    "evaluate_mechanism_canary",
     "AggregateMetrics",
     "ExperimentResult",
     "ExperimentStatus",

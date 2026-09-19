@@ -26,7 +26,9 @@ from ..telemetry import ResourceSample, ResourceTelemetry
 DEFAULT_INTERVAL_S = 0.25  # 250 ms — lightweight; documented here and in the schema.
 
 _KV_METRIC = "vllm:kv_cache_usage_perc"
-_KV_RE = re.compile(r"^vllm:kv_cache_usage_perc(?:\{[^}]*\})?\s+([0-9.eE+-]+)", re.MULTILINE)
+_KV_RE = re.compile(
+    r"^vllm:kv_cache_usage_perc(?:\{[^}]*\})?\s+([0-9.eE+-]+)", re.MULTILINE
+)
 # Cumulative counter; window preemptions = last - first observed.
 _PREEMPT_RE = re.compile(
     r"^vllm:num_preemptions_total(?:\{[^}]*\})?\s+([0-9.eE+-]+)", re.MULTILINE
@@ -36,6 +38,24 @@ _WAITING_RE = re.compile(
 )
 _RUNNING_RE = re.compile(
     r"^vllm:num_requests_running(?:\{[^}]*\})?\s+([0-9.eE+-]+)", re.MULTILINE
+)
+_RECOMPUTE_METRICS = (
+    (
+        "vllm:recomputed_token_executions_total",
+        re.compile(
+            r"^vllm:recomputed_token_executions_total(?:\{[^}]*\})?\s+"
+            r"([0-9.eE+-]+)",
+            re.MULTILINE,
+        ),
+    ),
+    (
+        "inferpilot:recomputed_token_executions_total",
+        re.compile(
+            r"^inferpilot:recomputed_token_executions_total(?:\{[^}]*\})?\s+"
+            r"([0-9.eE+-]+)",
+            re.MULTILINE,
+        ),
+    ),
 )
 
 
@@ -56,8 +76,11 @@ class TelemetrySampler:
         self.gpu_index = gpu_index
 
         self.samples: list[ResourceSample] = []
-        self._preempt_first: Optional[float] = None  # cumulative counter bounds over window
+        self._preempt_first: Optional[float] = (
+            None  # cumulative counter bounds over window
+        )
         self._preempt_last: Optional[float] = None
+        self.recompute_metric_name: Optional[str] = None
         self._errors: list[str] = []  # deduped, order-preserving
         self._stop = threading.Event()
         self._thread: Optional[threading.Thread] = None
@@ -86,7 +109,9 @@ class TelemetrySampler:
             return None, None
         mem = util = None
         try:
-            mem = int(self._pynvml.nvmlDeviceGetMemoryInfo(self._handle).used) // (1024 * 1024)
+            mem = int(self._pynvml.nvmlDeviceGetMemoryInfo(self._handle).used) // (
+                1024 * 1024
+            )
         except Exception as exc:
             self._note_error(f"nvml_memory_failed: {exc!r}")
         try:
@@ -98,14 +123,16 @@ class TelemetrySampler:
     # -- /metrics --------------------------------------------------------
     def _sample_metrics(
         self,
-    ) -> tuple[Optional[float], Optional[float], Optional[int], Optional[int]]:
+    ) -> tuple[
+        Optional[float], Optional[float], Optional[int], Optional[int], Optional[float]
+    ]:
         url = f"{self.base_url}/metrics"
         try:
             with urllib.request.urlopen(url, timeout=2.0) as resp:  # noqa: S310 (localhost)
                 text = resp.read().decode("utf-8", errors="replace")
         except (urllib.error.URLError, OSError, ValueError) as exc:
             self._note_error(f"metrics_fetch_failed: {exc!r}")
-            return None, None, None, None
+            return None, None, None, None, None
         preempt_value = None
         preempt = _PREEMPT_RE.search(text)
         if preempt:
@@ -119,6 +146,18 @@ class TelemetrySampler:
                 pass
         else:
             self._note_error("metric_not_found: vllm:num_preemptions_total")
+        recompute_value = None
+        for name, regex in _RECOMPUTE_METRICS:
+            recompute = regex.search(text)
+            if recompute is None:
+                continue
+            try:
+                value = float(recompute.group(1))
+                recompute_value = value
+                self.recompute_metric_name = name
+            except ValueError:
+                self._note_error(f"metric_parse_failed: {name}")
+            break
         queues = []
         for name, regex in (
             ("vllm:num_requests_waiting", _WAITING_RE),
@@ -140,19 +179,19 @@ class TelemetrySampler:
         match = _KV_RE.search(text)
         if not match:
             self._note_error(f"metric_not_found: {_KV_METRIC}")
-            return None, preempt_value, queues[0], queues[1]
+            return None, preempt_value, queues[0], queues[1], recompute_value
         try:
             kv = float(match.group(1))
         except ValueError:
             self._note_error("metric_parse_failed")
             kv = None
-        return kv, preempt_value, queues[0], queues[1]
+        return kv, preempt_value, queues[0], queues[1], recompute_value
 
     # -- loop ------------------------------------------------------------
-    def _sample_once(self) -> None:
-        t = monotonic() - self.t0
+    def _sample_once(self, *, t_s: Optional[float] = None) -> None:
+        t = monotonic() - self.t0 if t_s is None else t_s
         mem, util = self._sample_gpu()
-        kv, preemptions, waiting, running = self._sample_metrics()
+        kv, preemptions, waiting, running, recomputed = self._sample_metrics()
         try:
             self.samples.append(
                 ResourceSample(
@@ -163,32 +202,43 @@ class TelemetrySampler:
                     num_requests_waiting=waiting,
                     num_requests_running=running,
                     num_preemptions_total=preemptions,
+                    recomputed_token_executions_total=recomputed,
                 )
             )
         except Exception as exc:  # e.g. an out-of-range value; never fatal
             self._note_error(f"sample_build_failed: {exc!r}")
 
     def _run(self) -> None:
-        # Sample once before checking the stop flag so a very short measured
-        # window still yields at least one sample.
-        while True:
+        while not self._stop.wait(self.interval_s):
             self._sample_once()
-            if self._stop.wait(self.interval_s):
-                break
 
     # -- lifecycle -------------------------------------------------------
-    def start(self) -> None:
+    def start(self) -> float:
+        """Capture the pre-request boundary, then return the measured origin.
+
+        The potentially nontrivial first metrics scrape is deliberately outside
+        the measured clock so it cannot create open-loop dispatch drift.
+        """
         try:
             self._init_nvml()
+            # Synchronous boundary sample: short windows still have a true
+            # pre-request counter value before the background thread starts.
+            self._sample_once(t_s=0.0)
+            self.t0 = monotonic()
             self._thread = threading.Thread(target=self._run, daemon=True)
             self._thread.start()
         except Exception as exc:  # sampler must never break the benchmark
             self._note_error(f"sampler_start_failed: {exc!r}")
+            self.t0 = monotonic()
+        return self.t0
 
     def stop(self) -> ResourceTelemetry:
         self._stop.set()
         if self._thread is not None:
             self._thread.join(timeout=5.0)
+        # Synchronous boundary sample after all measured requests have
+        # completed, before NVML shutdown.
+        self._sample_once()
         if self._pynvml is not None:
             try:
                 self._pynvml.nvmlShutdown()
@@ -198,9 +248,21 @@ class TelemetrySampler:
 
     # -- derive ----------------------------------------------------------
     def _derive(self) -> ResourceTelemetry:
-        mems = [s.gpu_memory_used_mb for s in self.samples if s.gpu_memory_used_mb is not None]
-        utils = [s.gpu_utilization_pct for s in self.samples if s.gpu_utilization_pct is not None]
-        kvs = [s.kv_cache_usage_perc for s in self.samples if s.kv_cache_usage_perc is not None]
+        mems = [
+            s.gpu_memory_used_mb
+            for s in self.samples
+            if s.gpu_memory_used_mb is not None
+        ]
+        utils = [
+            s.gpu_utilization_pct
+            for s in self.samples
+            if s.gpu_utilization_pct is not None
+        ]
+        kvs = [
+            s.kv_cache_usage_perc
+            for s in self.samples
+            if s.kv_cache_usage_perc is not None
+        ]
 
         def _mean(xs):
             return sum(xs) / len(xs) if xs else None
@@ -208,7 +270,6 @@ class TelemetrySampler:
         preemptions = None
         if self._preempt_first is not None and self._preempt_last is not None:
             preemptions = max(0, int(round(self._preempt_last - self._preempt_first)))
-
         return ResourceTelemetry(
             sample_interval_s=self.interval_s,
             num_samples=len(self.samples),

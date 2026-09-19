@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Sequence
 
 from ..measurements import RequestMeasurement
+from ..mechanism import MechanismEvidence
 from ..results import ExperimentResult
 from ..telemetry import ResourceSample
 from .metrics_capabilities import MetricsCapabilityReport
@@ -26,6 +27,7 @@ LIFECYCLE_FILENAME = "lifecycle.json"
 ARRIVALS_FILENAME = "arrivals.json"
 PHASES_FILENAME = "phases.json"
 METRICS_CAPABILITIES_FILENAME = "metrics-capabilities.json"
+MECHANISM_EVIDENCE_FILENAME = "mechanism-evidence.json"
 SERVER_STDOUT_FILENAME = "server.stdout.log"
 SERVER_STDERR_FILENAME = "server.stderr.log"
 
@@ -89,12 +91,12 @@ def write_arrivals(run_dir: Path, arrivals: dict) -> Path:
 
 def write_phases(run_dir: Path, timing: "RunnerPhaseTiming") -> Path:
     """Persist the monotonic runner phase-timing artifact (immutable)."""
-    return _write_immutable_json(run_dir / PHASES_FILENAME, timing.model_dump(mode="json"))
+    return _write_immutable_json(
+        run_dir / PHASES_FILENAME, timing.model_dump(mode="json")
+    )
 
 
-def write_metrics_capabilities(
-    run_dir: Path, report: MetricsCapabilityReport
-) -> Path:
+def write_metrics_capabilities(run_dir: Path, report: MetricsCapabilityReport) -> Path:
     """Persist the metric-surface preflight captured from the running server."""
     return _write_immutable_json(
         run_dir / METRICS_CAPABILITIES_FILENAME,
@@ -102,11 +104,21 @@ def write_metrics_capabilities(
     )
 
 
+def write_mechanism_evidence(run_dir: Path, evidence: MechanismEvidence) -> Path:
+    """Persist measured-window scheduler/recomputation evidence."""
+    return _write_immutable_json(
+        run_dir / MECHANISM_EVIDENCE_FILENAME,
+        evidence.model_dump(mode="json"),
+    )
+
+
 def write_result(run_dir: Path, result: ExperimentResult) -> Path:
     """Write the result JSON exactly once and make it read-only (immutable)."""
     path = result_path(run_dir)
     if path.exists():
-        raise FileExistsError(f"result already written at {path}; results are immutable")
+        raise FileExistsError(
+            f"result already written at {path}; results are immutable"
+        )
     path.write_text(result.model_dump_json(indent=2))
     # Make the file read-only for all — a stored result must not be mutated.
     path.chmod(stat.S_IRUSR | stat.S_IRGRP | stat.S_IROTH)

@@ -48,6 +48,7 @@ InferPilot refuses to, unless the per-window request/queue/token evidence actual
 ```bash
 uv sync --extra dev --locked
 uv run python scripts/instrumentation_dry_run.py # full fake-server evidence chain (~40 s)
+uv run python scripts/mechanism_canary_dry_run.py # exact counter/log ingestion canary; no GPU
 uv run python scripts/aligned_load_demo.py   # healthy / overloaded / abstain, GPU-free
 uv run python scripts/fp8_law_demo.py        # real legacy measurements + evidence status
 uv run python scripts/cost_rescue_demo.py    # measured economics; no retroactive diagnosis

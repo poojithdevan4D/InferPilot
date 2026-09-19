@@ -32,6 +32,7 @@ from .artifacts import (
     server_log_paths,
     write_arrivals,
     write_lifecycle,
+    write_mechanism_evidence,
     write_metrics_capabilities,
     write_phases,
     write_result,
@@ -61,6 +62,7 @@ from .metrics_capabilities import (
     MetricRequirement,
     fetch_metrics_capability_report,
 )
+from .mechanism_evidence import build_mechanism_evidence
 from .workload_gen import generate_workload
 
 CommandBuilder = Callable[[int], list[str]]
@@ -106,7 +108,9 @@ def capture_environment(
         vllm_version=_pkg_version("vllm"),
         hardware=discover_hardware(),
         toolchain=discover_toolchain(),
-        effective_sampler_backend=engine.sampler_backend if engine is not None else None,
+        effective_sampler_backend=engine.sampler_backend
+        if engine is not None
+        else None,
         runtime_overrides=dict(runtime_overrides) if runtime_overrides else {},
         captured_at=_now(),
     )
@@ -149,7 +153,9 @@ def _failure_result(
     )
 
 
-def _generation_params(config: ExperimentConfig, request_timeout_s: float) -> GenerationParams:
+def _generation_params(
+    config: ExperimentConfig, request_timeout_s: float
+) -> GenerationParams:
     engine = config.engine
     workload = config.workload
     return GenerationParams(
@@ -184,7 +190,18 @@ def run_experiment(
     required family is absent. Name presence still does not prove metric semantics.
     """
     if require_metric_capabilities and metric_requirements is None:
-        raise ValueError("required metric capabilities need explicit metric requirements")
+        raise ValueError(
+            "required metric capabilities need explicit metric requirements"
+        )
+    mechanism_requested = bool(
+        metric_requirements
+        and any(
+            requirement.semantic == "recomputed_token_executions"
+            for requirement in metric_requirements
+        )
+    )
+    if mechanism_requested and config.engine.max_num_seqs is None:
+        raise ValueError("mechanism evidence requires an explicit max_num_seqs")
     workload = config.workload
     env_overrides = build_server_env(config.engine)
     environment = capture_environment(config.engine, env_overrides)
@@ -226,21 +243,36 @@ def run_experiment(
             ready = False
             if _looks_like_oom(server.read_stderr()):
                 result = _failure_result(
-                    config, environment, ExperimentStatus.OOM, "CudaOOM",
-                    f"server OOM before readiness: {exc}", started_at,
+                    config,
+                    environment,
+                    ExperimentStatus.OOM,
+                    "CudaOOM",
+                    f"server OOM before readiness: {exc}",
+                    started_at,
                 )
             else:
                 result = _failure_result(
-                    config, environment, ExperimentStatus.TIMEOUT, "ServerReadinessTimeout",
-                    str(exc), started_at,
+                    config,
+                    environment,
+                    ExperimentStatus.TIMEOUT,
+                    "ServerReadinessTimeout",
+                    str(exc),
+                    started_at,
                 )
         except ServerStartupError as exc:
             ready = False
-            status = ExperimentStatus.OOM if _looks_like_oom(server.read_stderr()) else ExperimentStatus.FAILED
+            status = (
+                ExperimentStatus.OOM
+                if _looks_like_oom(server.read_stderr())
+                else ExperimentStatus.FAILED
+            )
             result = _failure_result(
-                config, environment, status,
+                config,
+                environment,
+                status,
                 "CudaOOM" if status is ExperimentStatus.OOM else "ServerStartupError",
-                str(exc), started_at,
+                str(exc),
+                started_at,
             )
 
         if ready:
@@ -279,10 +311,16 @@ def run_experiment(
         if ready and (mismatches or unverified):
             # Fail BEFORE measurement — a config drift invalidates the benchmark.
             result = _failure_result(
-                config, environment, ExperimentStatus.FAILED, "ConfigFidelityMismatch",
+                config,
+                environment,
+                ExperimentStatus.FAILED,
+                "ConfigFidelityMismatch",
                 "resolved config could not be verified: "
-                + "; ".join(mismatches + [f"{field}: unresolved" for field in unverified]),
-                started_at, effective_config=effective,
+                + "; ".join(
+                    mismatches + [f"{field}: unresolved" for field in unverified]
+                ),
+                started_at,
+                effective_config=effective,
             )
         elif ready:
             gen = generate_workload(workload)
@@ -293,16 +331,29 @@ def run_experiment(
             if open_loop:
                 if workload.arrival_pattern == BATCHED_POISSON_VERSION:
                     scheduled_offsets = generate_batched_poisson_offsets(
-                        workload.num_requests, workload.request_rate_qps,
-                        workload.effective_arrival_seed, workload.burst_size,
+                        workload.num_requests,
+                        workload.request_rate_qps,
+                        workload.effective_arrival_seed,
+                        workload.burst_size,
                     )
                 else:
                     scheduled_offsets = generate_poisson_offsets(
-                        workload.num_requests, workload.request_rate_qps,
+                        workload.num_requests,
+                        workload.request_rate_qps,
                         workload.effective_arrival_seed,
                     )
 
-            async def _run_all() -> tuple[list, list, float, ResourceTelemetry, list, Optional[dict]]:
+            async def _run_all() -> tuple[
+                list,
+                list,
+                float,
+                ResourceTelemetry,
+                list,
+                Optional[dict],
+                tuple[int, int],
+                tuple[int, int],
+                Optional[str],
+            ]:
                 t0 = monotonic()
                 warmups: list[RequestMeasurement] = []
                 if gen.warmup_prompts:
@@ -310,24 +361,31 @@ def run_experiment(
                     # arrival clock / telemetry window begin.
                     timer.mark("warmup_start")
                     warmups = await run_requests(
-                        server.base_url, gen.warmup_prompts, params,
-                        t0=t0, max_concurrency=1 if open_loop else concurrency,
+                        server.base_url,
+                        gen.warmup_prompts,
+                        params,
+                        t0=t0,
+                        max_concurrency=1 if open_loop else concurrency,
                         id_prefix="warmup",
                     )
                     timer.mark("warmup_end")
                     if any(not m.success for m in warmups):
                         raise _WarmupFailed(warmups)
-                # Measured window (telemetry + arrival origin) starts here.
-                arrival_origin = monotonic()
+                # Prime the counter boundary before starting the arrival clock;
+                # the metrics scrape itself must not create dispatch drift.
+                sampler = TelemetrySampler(server.base_url, t0=monotonic())
+                arrival_origin = sampler.start()
                 timer.mark_at("measured_start", arrival_origin)
-                sampler = TelemetrySampler(server.base_url, t0=arrival_origin)
+                log_start = server.log_offsets()
                 arrivals: Optional[dict] = None
                 try:
-                    sampler.start()
                     if open_loop:
                         measured, dispatch = await run_requests_open_loop(
-                            server.base_url, gen.measured_prompts, params,
-                            t0=arrival_origin, offsets=scheduled_offsets,
+                            server.base_url,
+                            gen.measured_prompts,
+                            params,
+                            t0=arrival_origin,
+                            offsets=scheduled_offsets,
                             id_prefix="measured",
                         )
                         arrivals = {
@@ -344,21 +402,42 @@ def run_experiment(
                         }
                     else:
                         measured = await run_requests(
-                            server.base_url, gen.measured_prompts, params,
-                            t0=arrival_origin, max_concurrency=concurrency,
+                            server.base_url,
+                            gen.measured_prompts,
+                            params,
+                            t0=arrival_origin,
+                            max_concurrency=concurrency,
                             id_prefix="measured",
                         )
                     m_end = monotonic()
                     timer.mark_at("measured_end", m_end)
+                    log_end = server.log_offsets()
                 finally:
                     telemetry = sampler.stop()
                 return (
-                    warmups, measured, (m_end - arrival_origin),
-                    telemetry, sampler.samples, arrivals,
+                    warmups,
+                    measured,
+                    (m_end - arrival_origin),
+                    telemetry,
+                    sampler.samples,
+                    arrivals,
+                    log_start,
+                    log_end,
+                    sampler.recompute_metric_name,
                 )
 
             try:
-                warmups, measured, duration_s, telemetry, samples, arrivals = asyncio.run(_run_all())
+                (
+                    warmups,
+                    measured,
+                    duration_s,
+                    telemetry,
+                    samples,
+                    arrivals,
+                    log_start,
+                    log_end,
+                    recompute_metric_name,
+                ) = asyncio.run(_run_all())
                 # Measured window finished; retain its duration for phase timing
                 # even if aggregation/finalization below raises.
                 measured_duration_s = duration_s
@@ -369,16 +448,42 @@ def run_experiment(
                 failed = [m for m in wf.measurements if not m.success]
                 first_error = failed[0].error if failed else "unknown"
                 result = _failure_result(
-                    config, environment, ExperimentStatus.FAILED, "WarmupFailure",
+                    config,
+                    environment,
+                    ExperimentStatus.FAILED,
+                    "WarmupFailure",
                     f"{len(failed)}/{len(wf.measurements)} warm-up request(s) failed "
                     f"before measured execution; first error: {first_error}",
-                    started_at, effective_config=effective,
+                    started_at,
+                    effective_config=effective,
                 )
             else:
                 timer.mark("finalize_start")
                 if warmups:
                     write_warmup(run_dir, warmups)
                 write_telemetry(run_dir, samples)
+                if mechanism_requested:
+                    stdout_slice = server.read_log_slice(
+                        stdout_path, log_start[0], log_end[0]
+                    )
+                    stderr_slice = server.read_log_slice(
+                        stderr_path, log_start[1], log_end[1]
+                    )
+                    evidence = build_mechanism_evidence(
+                        experiment_id=config.experiment_id,
+                        measured_duration_s=duration_s,
+                        sample_interval_s=telemetry.sample_interval_s,
+                        max_num_seqs=config.engine.max_num_seqs,
+                        telemetry_samples=samples,
+                        counter_metric_name=(
+                            recompute_metric_name or "unobserved-recomputation-counter"
+                        ),
+                        stdout_slice=stdout_slice,
+                        stderr_slice=stderr_slice,
+                        stdout_bounds=(log_start[0], log_end[0]),
+                        stderr_bounds=(log_start[1], log_end[1]),
+                    )
+                    write_mechanism_evidence(run_dir, evidence)
                 if arrivals is not None:
                     write_arrivals(run_dir, arrivals)
                 aggregates = compute_aggregates(measured, duration_s)
@@ -434,15 +539,24 @@ def run_experiment(
     except KeyboardInterrupt:
         if result is None:
             result = _failure_result(
-                config, environment, ExperimentStatus.FAILED, "Interrupted",
-                "run interrupted by user", started_at,
+                config,
+                environment,
+                ExperimentStatus.FAILED,
+                "Interrupted",
+                "run interrupted by user",
+                started_at,
             )
         raise
     except Exception as exc:  # unexpected: still record a structured FAILED result
         if result is None:
             result = _failure_result(
-                config, environment, ExperimentStatus.FAILED, type(exc).__name__,
-                str(exc), started_at, traceback=_tb.format_exc(),
+                config,
+                environment,
+                ExperimentStatus.FAILED,
+                type(exc).__name__,
+                str(exc),
+                started_at,
+                traceback=_tb.format_exc(),
             )
     finally:
         # stop() records the teardown boundary; classify errors before vs after it

@@ -52,6 +52,7 @@ class _Handler(BaseHTTPRequestHandler):
         elif self.path.startswith("/metrics"):
             kv = getattr(self.server, "kv_usage", 0.42)  # type: ignore[attr-defined]
             preemptions = self.server.next_preemption_sample()  # type: ignore[attr-defined]
+            _, recomputed = self.server.mechanism_counters()  # type: ignore[attr-defined]
             body = (
                 "# HELP vllm:kv_cache_usage_perc KV-cache usage.\n"
                 "# TYPE vllm:kv_cache_usage_perc gauge\n"
@@ -59,7 +60,15 @@ class _Handler(BaseHTTPRequestHandler):
                 "vllm:num_requests_waiting 0\n"
                 "vllm:num_requests_running 0\n"
                 f"vllm:num_preemptions_total {preemptions}\n"
-            ).encode()
+            )
+            if self.server.expose_recomputed_metric:  # type: ignore[attr-defined]
+                body += (
+                    "# HELP vllm:recomputed_token_executions_total "
+                    "Exact repeated token executions.\n"
+                    "# TYPE vllm:recomputed_token_executions_total counter\n"
+                    f"vllm:recomputed_token_executions_total {recomputed}\n"
+                )
+            body = body.encode()
             self.send_response(200)
             self.send_header("Content-Type", "text/plain; version=0.0.4")
             self.end_headers()
@@ -83,9 +92,8 @@ class _Handler(BaseHTTPRequestHandler):
         # Optional fixed delay before responding — lets tests prove open-loop
         # arrivals do not wait for earlier requests to complete.
         request_index = self.server.next_request_index()  # type: ignore[attr-defined]
-        delay = (
-            getattr(self.server, "response_delay", 0.0)
-            + request_index * getattr(self.server, "response_delay_slope", 0.0)
+        delay = getattr(self.server, "response_delay", 0.0) + request_index * getattr(
+            self.server, "response_delay_slope", 0.0
         )
         if delay:
             time.sleep(delay)
@@ -111,6 +119,7 @@ class _Handler(BaseHTTPRequestHandler):
             "completion_tokens": n,
             "total_tokens": self.server.prompt_tokens + n,  # type: ignore[attr-defined]
         }
+        self.server.record_completed_request(request_index)  # type: ignore[attr-defined]
         self._send({"choices": [], "usage": usage})
         self.wfile.write(b"data: [DONE]\n\n")
         self.wfile.flush()
@@ -124,9 +133,19 @@ class _FakeServer(ThreadingHTTPServer):
     daemon_threads = True
 
     def __init__(
-        self, addr, mode: str, output_tokens: int, prompt_tokens: int,
-        kv_usage: float = 0.42, response_delay: float = 0.0,
-        response_delay_slope: float = 0.0, preemption_increment: int = 0,
+        self,
+        addr,
+        mode: str,
+        output_tokens: int,
+        prompt_tokens: int,
+        kv_usage: float = 0.42,
+        response_delay: float = 0.0,
+        response_delay_slope: float = 0.0,
+        preemption_increment: int = 0,
+        preemptions_per_request: int = 0,
+        recomputed_tokens_per_request: int = 0,
+        emit_iteration_details: bool = False,
+        expose_recomputed_metric: bool = False,
     ) -> None:
         super().__init__(addr, _Handler)
         self.mode = mode
@@ -136,8 +155,13 @@ class _FakeServer(ThreadingHTTPServer):
         self.response_delay = response_delay
         self.response_delay_slope = response_delay_slope
         self.preemption_increment = preemption_increment
+        self.preemptions_per_request = preemptions_per_request
+        self.recomputed_tokens_per_request = recomputed_tokens_per_request
+        self.emit_iteration_details = emit_iteration_details
+        self.expose_recomputed_metric = expose_recomputed_metric
         self._request_index = 0
         self._preemption_sample = 0
+        self._recomputed_tokens = 0
         self._counter_lock = threading.Lock()
 
     def next_request_index(self) -> int:
@@ -152,17 +176,58 @@ class _FakeServer(ThreadingHTTPServer):
             self._preemption_sample += self.preemption_increment
             return value
 
+    def mechanism_counters(self) -> tuple[int, int]:
+        with self._counter_lock:
+            return self._preemption_sample, self._recomputed_tokens
+
+    def record_completed_request(self, request_index: int) -> None:
+        with self._counter_lock:
+            self._preemption_sample += self.preemptions_per_request
+            self._recomputed_tokens += self.recomputed_tokens_per_request
+            if self.emit_iteration_details:
+                sys.stdout.write(
+                    f"INFO Engine 000: Iteration({request_index * 2}): "
+                    f"1 context requests, {self.prompt_tokens} context tokens, "
+                    "0 generation requests, 0 generation tokens, "
+                    "iteration elapsed time: 1.00 ms, "
+                    f"GPU KV cache usage: {self.kv_usage * 100:.1f}%\n"
+                    f"INFO Engine 000: Iteration({request_index * 2 + 1}): "
+                    "0 context requests, 0 context tokens, "
+                    f"1 generation requests, {self.output_tokens} generation tokens, "
+                    "iteration elapsed time: 1.00 ms, "
+                    f"GPU KV cache usage: {self.kv_usage * 100:.1f}%\n"
+                )
+                sys.stdout.flush()
+
 
 @contextlib.contextmanager
 def serve_in_thread(
-    mode: str = "normal", output_tokens: int = 8, prompt_tokens: int = 128,
-    kv_usage: float = 0.42, response_delay: float = 0.0,
-    response_delay_slope: float = 0.0, preemption_increment: int = 0,
+    mode: str = "normal",
+    output_tokens: int = 8,
+    prompt_tokens: int = 128,
+    kv_usage: float = 0.42,
+    response_delay: float = 0.0,
+    response_delay_slope: float = 0.0,
+    preemption_increment: int = 0,
+    preemptions_per_request: int = 0,
+    recomputed_tokens_per_request: int = 0,
+    emit_iteration_details: bool = False,
+    expose_recomputed_metric: bool = False,
 ) -> Iterator[str]:
     """Start the fake server on a free port in a daemon thread; yield base_url."""
     server = _FakeServer(
-        ("127.0.0.1", 0), mode, output_tokens, prompt_tokens, kv_usage,
-        response_delay, response_delay_slope, preemption_increment,
+        ("127.0.0.1", 0),
+        mode,
+        output_tokens,
+        prompt_tokens,
+        kv_usage,
+        response_delay,
+        response_delay_slope,
+        preemption_increment,
+        preemptions_per_request,
+        recomputed_tokens_per_request,
+        emit_iteration_details,
+        expose_recomputed_metric,
     )
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -201,6 +266,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--response-delay", type=float, default=0.0)
     parser.add_argument("--response-delay-slope", type=float, default=0.0)
     parser.add_argument("--preemption-increment", type=int, default=0)
+    parser.add_argument("--preemptions-per-request", type=int, default=0)
+    parser.add_argument("--recomputed-tokens-per-request", type=int, default=0)
+    parser.add_argument("--emit-iteration-details", action="store_true")
+    parser.add_argument("--expose-recomputed-metric", action="store_true")
     parser.add_argument(
         "--emit-effective",
         default=None,
@@ -213,7 +282,9 @@ def main(argv: list[str] | None = None) -> int:
         sys.stderr.flush()
         return 1
     if args.mode == "oom_crash":
-        sys.stderr.write("torch.cuda.OutOfMemoryError: CUDA out of memory. Tried to allocate ...\n")
+        sys.stderr.write(
+            "torch.cuda.OutOfMemoryError: CUDA out of memory. Tried to allocate ...\n"
+        )
         sys.stderr.flush()
         return 1
 
@@ -221,9 +292,18 @@ def main(argv: list[str] | None = None) -> int:
         _emit_effective_config(args.emit_effective)
 
     server = _FakeServer(
-        ("127.0.0.1", args.port), args.mode, args.output_tokens, args.prompt_tokens,
-        args.kv_usage, args.response_delay, args.response_delay_slope,
+        ("127.0.0.1", args.port),
+        args.mode,
+        args.output_tokens,
+        args.prompt_tokens,
+        args.kv_usage,
+        args.response_delay,
+        args.response_delay_slope,
         args.preemption_increment,
+        args.preemptions_per_request,
+        args.recomputed_tokens_per_request,
+        args.emit_iteration_details,
+        args.expose_recomputed_metric,
     )
     try:
         server.serve_forever()

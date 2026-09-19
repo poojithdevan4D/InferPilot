@@ -111,7 +111,10 @@ def build_vllm_command(
     _bool_flag(cmd, engine.enable_prefix_caching, "enable-prefix-caching")
     _bool_flag(cmd, engine.enable_chunked_prefill, "enable-chunked-prefill")
     for key, value in engine.extra_args.items():
-        cmd += [f"--{key}", str(value)]
+        if isinstance(value, bool):
+            _bool_flag(cmd, value, key)
+        else:
+            cmd += [f"--{key}", str(value)]
     return cmd
 
 
@@ -225,6 +228,22 @@ class ManagedServer:
         except OSError:
             return 0
 
+    def log_offsets(self) -> tuple[int, int]:
+        """Current stdout/stderr byte offsets for a monotonic phase boundary."""
+        return self._log_size(self.stdout_path), self._log_size(self.stderr_path)
+
+    @staticmethod
+    def read_log_slice(path: Path, start: int, end: int) -> bytes:
+        """Read one previously captured half-open byte range without mutation."""
+        if start < 0 or end < start:
+            raise ValueError("invalid log slice bounds")
+        try:
+            with path.open("rb") as handle:
+                handle.seek(start)
+                return handle.read(end - start)
+        except OSError:
+            return b""
+
     def stop(self) -> None:
         """Terminate gracefully; escalate to kill after ``terminate_timeout_s``.
 
@@ -275,8 +294,14 @@ class ManagedServer:
         (e.g. vLLM's AsyncLLM output_handler reacting to SIGTERM). Logs are never
         suppressed — this only classifies them.
         """
-        pattern = re.compile(r"\bERROR\b|Traceback \(most recent call last\)|EngineDeadError")
-        result = {"pre_teardown": [], "teardown_count": 0, "teardown_started": self._teardown_started}
+        pattern = re.compile(
+            r"\bERROR\b|Traceback \(most recent call last\)|EngineDeadError"
+        )
+        result = {
+            "pre_teardown": [],
+            "teardown_count": 0,
+            "teardown_started": self._teardown_started,
+        }
         for path, offset in (
             (self.stdout_path, self._teardown_stdout_offset),
             (self.stderr_path, self._teardown_stderr_offset),

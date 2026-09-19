@@ -12,6 +12,7 @@ Run:
 ```bash
 uv sync --extra dev --locked
 uv run python scripts/instrumentation_dry_run.py
+uv run python scripts/mechanism_canary_dry_run.py
 uv run --extra dev pytest -q
 ```
 
@@ -25,6 +26,12 @@ Required dry-run output:
 
 `NO_GO_EXPECTED` is correct for the fake server: it deliberately lacks exact scheduler/recompute
 counters. Any other result means the local evidence chain is broken. **Do not rent a GPU.**
+
+The separate mechanism canary must print `canary = PASS`, control recomputation `0`, pressure
+recomputation `24`, pressure preemptions `6`, and 12 parsed measured-window iterations per arm. It
+uses a fake server and proves ingestion, byte-window binding, counter deltas, log parsing, immutable
+evidence, and the automatic verdict. It does **not** validate the patched vLLM counter's real GPU
+semantics; Gate 2 still does that.
 
 ## Mechanism-metrics path decision — 2026-09-19
 
@@ -87,6 +94,15 @@ The image was built and pushed by [GitHub Actions run 35461545044](https://githu
 Always pull by digest, never by the convenience tag. This freeze unblocks the GPU **canary**, not the
 six performance cells: Gates 1 and 2 must still pass first.
 
+### Frozen scheduler controls
+
+Every real canary and pilot cell must use `--no-async-scheduling`,
+`--no-enable-prefix-caching`, and `--enable-logging-iteration-details`. Speculative decoding must
+remain disabled by supplying no speculative model/configuration flags. These controls apply equally
+to both KV-cache arms; changing one requires a new preregistration. The runner records the requested
+configuration, effective vLLM configuration, exact measured-window log byte ranges, and the selected
+recomputation metric family.
+
 ## Gate 1 — pinned real-server metric surface
 
 Start only the preregistered Qwen2.5-3B server on one A10G using the frozen patch revision and
@@ -111,6 +127,11 @@ Prometheus semantics must each have one accepted metric name:
 Separately, captured startup logs must prove that `--enable-logging-iteration-details` is active, and
 the discarded canary must contain parseable rows with context requests/tokens and generation
 requests/tokens. Their absence is a Gate-1 failure even when the Prometheus report is green.
+
+For a capability-gated run, InferPilot writes an immutable `mechanism-evidence.json` (`0.1.0`). It
+binds the raw telemetry digest and exact stdout/stderr byte ranges, stores the recomputation and
+preemption boundary deltas, preserves every parsed iteration, and recomputes all derived token and
+batch totals on load. `coverage_complete=false` is a hard rejection.
 
 ### Immediate kill criteria
 
@@ -150,6 +171,16 @@ Required checks:
    scheduled prefill plus decode token executions.
 8. Sampling covers the same monotonic window as `LoadEvidence`, with both boundary samples present.
 
+Before renting a GPU, exercise the identical evidence/verdict path without hardware:
+
+```bash
+uv run python scripts/mechanism_canary_dry_run.py
+```
+
+The command exits nonzero on incomplete evidence, an incorrect control, a pressure arm that fails to
+move both counters, or recomputation greater than scheduled work. On the real patched server, preserve
+both discarded canary bundles and the immutable `mechanism-canary-report.json` before proceeding.
+
 ### Semantic kill criteria
 
 Record `INSTRUMENTATION_INVALID` and stop if a counter resets, decreases, is ambiguous about cached vs
@@ -168,6 +199,7 @@ Before accepting a cell, require all of the following:
 - `LoadEvidence` present with `coverage_complete=true`, `steady_state=true`, ≥100 arrivals, and ≥30 s;
 - metric capability report present and `ready=true`;
 - complete queue/KV/preemption/recompute/prefill/decode/batch coverage;
+- immutable `mechanism-evidence.json` present with `coverage_complete=true`;
 - `arrivals.json`, telemetry, phase timing, lifecycle, and bundle-integrity checks pass;
 - dispatch-drift p95 ≤10 ms;
 - no pre-teardown lifecycle errors;

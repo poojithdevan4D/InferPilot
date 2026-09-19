@@ -58,7 +58,9 @@ def _server(cmd, tmp_path, **kw) -> ManagedServer:
 
 
 def test_build_vllm_command_uses_supported_serve_form() -> None:
-    engine = EngineConfig(model="Qwen/Qwen2.5-0.5B-Instruct", revision="abc123", max_num_seqs=1)
+    engine = EngineConfig(
+        model="Qwen/Qwen2.5-0.5B-Instruct", revision="abc123", max_num_seqs=1
+    )
     cmd = build_vllm_command(engine, port=8123, host="127.0.0.1")
     assert isinstance(cmd, list)
     # Supported non-deprecated CLI: `vllm serve <model>` (no `-m api_server`).
@@ -75,6 +77,20 @@ def test_build_vllm_command_uses_supported_serve_form() -> None:
 def test_build_vllm_command_omits_revision_when_absent() -> None:
     cmd = build_vllm_command(EngineConfig(model="m"), port=1, host="127.0.0.1")
     assert "--revision" not in cmd
+
+
+def test_build_vllm_command_maps_boolean_extra_args_to_explicit_flags() -> None:
+    cmd = build_vllm_command(
+        EngineConfig(
+            model="m",
+            extra_args={"async-scheduling": False, "some-feature": True},
+        ),
+        port=1,
+    )
+    assert "--no-async-scheduling" in cmd
+    assert "--some-feature" in cmd
+    assert "False" not in cmd
+    assert "True" not in cmd
 
 
 # --- explicit tri-state boolean mapping (true / false / default) ------------ #
