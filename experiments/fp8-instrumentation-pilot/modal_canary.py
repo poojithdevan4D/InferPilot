@@ -32,7 +32,11 @@ if not WHEELS:
     raise RuntimeError("build InferPilot first: uv build")
 WHEEL = Path(WHEELS[-1])
 
-image = modal.Image.from_registry(IMAGE, add_python="3.12")
+image = modal.Image.from_registry(
+    IMAGE,
+    add_python="3.12",
+    setup_dockerfile_commands=["ENTRYPOINT []"],
+)
 image = image.add_local_file(
     WHEEL,
     f"/wheels/{WHEEL.name}",
