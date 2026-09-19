@@ -26,22 +26,26 @@ MODEL = "Qwen/Qwen2.5-3B-Instruct"
 MODEL_REVISION = "aa8e72537993ba99e69dfaafa59ed015b17504d1"
 REMOTE_CACHE = "/root/.cache/huggingface"
 
-ROOT = Path(__file__).resolve().parents[2]
-WHEELS = sorted(glob.glob(str(ROOT / "dist" / "inferpilot-*.whl")))
-if not WHEELS:
-    raise RuntimeError("build InferPilot first: uv build")
-WHEEL = Path(WHEELS[-1])
+try:
+    ROOT = Path(__file__).resolve().parents[2]
+    WHEELS = sorted(glob.glob(str(ROOT / "dist" / "inferpilot-*.whl")))
+    WHEEL = Path(WHEELS[-1]) if WHEELS else None
+except IndexError:
+    # The remote module is mounted at /root/modal_canary.py; InferPilot is
+    # already installed in the image built by the local import.
+    WHEEL = None
 
 image = modal.Image.from_registry(
     IMAGE,
     add_python="3.12",
     setup_dockerfile_commands=["ENTRYPOINT []"],
 )
-image = image.add_local_file(
-    WHEEL,
-    f"/wheels/{WHEEL.name}",
-    copy=True,
-).run_commands(f"python -m pip install /wheels/{WHEEL.name}")
+if WHEEL is not None:
+    image = image.add_local_file(
+        WHEEL,
+        f"/wheels/{WHEEL.name}",
+        copy=True,
+    ).run_commands(f"python -m pip install /wheels/{WHEEL.name}")
 
 app = modal.App(APP_NAME)
 hf_cache = modal.Volume.from_name("inferpilot-hf-cache", create_if_missing=True)
