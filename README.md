@@ -52,7 +52,7 @@ uv run python scripts/mechanism_canary_dry_run.py # exact counter/log ingestion 
 uv run python scripts/aligned_load_demo.py   # healthy / overloaded / abstain, GPU-free
 uv run python scripts/fp8_law_demo.py        # real legacy measurements + evidence status
 uv run python scripts/cost_rescue_demo.py    # measured economics; no retroactive diagnosis
-uv run --extra dev pytest -q                 # 501 tests; no GPU required
+uv run --extra dev pytest -q                 # 507 tests; no GPU required
 ```
 
 For a technical review, read these in order:

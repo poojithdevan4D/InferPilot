@@ -11,16 +11,11 @@ import json
 import math
 from pathlib import Path
 
-from inferpilot import (
-    EngineConfig,
-    ExperimentConfig,
-    ExperimentResult,
-    MechanismEvidence,
-    RunnerPhaseTiming,
-    WorkloadSpec,
+from inferpilot import EngineConfig, ExperimentConfig, ExperimentResult, MechanismEvidence, WorkloadSpec
+from inferpilot.runner.mechanism_study import (
+    mechanism_cell_outcome,
+    validate_mechanism_cell,
 )
-from inferpilot.runner.metrics_capabilities import MetricsCapabilityReport
-from inferpilot.saturation import assess_load_state
 
 MODEL = "Qwen/Qwen2.5-3B-Instruct"
 MODEL_REVISION = "aa8e72537993ba99e69dfaafa59ed015b17504d1"
@@ -94,176 +89,16 @@ def config_for(block: int, prompt_seed: int, arrival_seed: int, arm: str) -> Exp
     )
 
 
-def _percentile(values: list[float], quantile: float) -> float | None:
-    if not values:
-        return None
-    ordered = sorted(values)
-    return ordered[min(len(ordered) - 1, int(quantile * (len(ordered) - 1)))]
-
-
-def _read_json(path: Path):
-    return json.loads(path.read_text())
-
-
 def validate_cell(result: ExperimentResult, run_dir: Path) -> dict:
     """Apply every preregistered acceptance gate without reading outcome values."""
-    problems: list[str] = []
-    expected = result.config.workload
-    if result.status.value != "completed":
-        problems.append(f"status={result.status.value}")
-    if not result.is_baseline_eligible:
-        problems.append("not_baseline_eligible")
-    aggregate = result.aggregates
-    counts = None if aggregate is None else (
-        aggregate.num_requests,
-        aggregate.num_successful,
-        aggregate.num_failed,
-    )
-    if counts != (NUM_REQUESTS, NUM_REQUESTS, 0):
-        problems.append(f"counts={counts}")
-    effective = result.effective_config
-    if effective is None or not effective.verified or effective.unverified_fields:
-        problems.append("effective_config_unverified")
-    telemetry = result.telemetry
-    if telemetry is None or telemetry.error is not None or telemetry.num_samples < 1:
-        problems.append("telemetry_incomplete")
-
-    load = result.load_evidence
-    load_state = None
-    if load is None:
-        problems.append("load_evidence_missing")
-    else:
-        if not load.coverage_complete:
-            problems.append("load_coverage_incomplete")
-        if not load.steady_state:
-            problems.append("load_not_steady_state")
-        if len(load.boundaries_s) < 2 or load.boundaries_s[-1] - load.boundaries_s[0] < 30:
-            problems.append("load_window_too_short")
-        try:
-            assessment = assess_load_state(result.measurements, evidence=load)
-            load_state = assessment.state
-            if sum(assessment.arrivals) < NUM_REQUESTS:
-                problems.append("load_arrivals_below_100")
-        except ValueError:
-            problems.append("load_evidence_invalid")
-
-    warmup_path = run_dir / "warmup.json"
-    if not warmup_path.is_file():
-        problems.append("warmup_missing")
-    else:
-        warmups = _read_json(warmup_path)
-        if len(warmups) != WARMUP_REQUESTS or any(not row.get("success") for row in warmups):
-            problems.append("warmup_invalid")
-
-    lifecycle_path = run_dir / "lifecycle.json"
-    if not lifecycle_path.is_file():
-        problems.append("lifecycle_missing")
-    elif _read_json(lifecycle_path).get("pre_teardown"):
-        problems.append("lifecycle_pre_teardown_errors")
-
-    phases_path = run_dir / "phases.json"
-    if not phases_path.is_file():
-        problems.append("phases_missing")
-    else:
-        try:
-            phases = RunnerPhaseTiming.model_validate_json(phases_path.read_text())
-            by_name = {phase.name: phase for phase in phases.phases}
-            if phases.terminal_status != "completed" or not all(
-                by_name[name].completed
-                for name in ("server_startup", "measured_window", "finalization", "teardown")
-            ):
-                problems.append("phases_incomplete")
-        except ValueError:
-            problems.append("phases_invalid")
-
-    capability_path = run_dir / "metrics-capabilities.json"
-    if not capability_path.is_file():
-        problems.append("metrics_capabilities_missing")
-    else:
-        try:
-            capabilities = MetricsCapabilityReport.model_validate_json(capability_path.read_text())
-            if not capabilities.ready or capabilities.missing_required:
-                problems.append("metrics_capabilities_not_ready")
-        except ValueError:
-            problems.append("metrics_capabilities_invalid")
-
-    mechanism_path = run_dir / "mechanism-evidence.json"
-    mechanism = None
-    if not mechanism_path.is_file():
-        problems.append("mechanism_evidence_missing")
-    else:
-        try:
-            mechanism = MechanismEvidence.model_validate_json(mechanism_path.read_text())
-            if not mechanism.coverage_complete:
-                problems.append("mechanism_coverage_incomplete")
-            if mechanism.experiment_id != result.config.experiment_id:
-                problems.append("mechanism_experiment_mismatch")
-        except ValueError:
-            problems.append("mechanism_evidence_invalid")
-
-    drift: dict = {}
-    arrivals_path = run_dir / "arrivals.json"
-    if not arrivals_path.is_file():
-        problems.append("arrivals_missing")
-    else:
-        arrivals = _read_json(arrivals_path)
-        scheduled = arrivals.get("scheduled_offsets_s", [])
-        actual = arrivals.get("actual_dispatch_offsets_s", [])
-        if len(scheduled) != NUM_REQUESTS or len(actual) != NUM_REQUESTS:
-            problems.append("arrival_counts_invalid")
-        else:
-            drifts = [(observed - planned) * 1000 for planned, observed in zip(scheduled, actual)]
-            p95 = _percentile(drifts, 0.95)
-            drift = {
-                "mean_ms": sum(drifts) / len(drifts),
-                "p95_ms": p95,
-                "max_ms": max(drifts),
-            }
-            if p95 is not None and p95 > MAX_DRIFT_P95_MS:
-                problems.append("dispatch_drift_exceeded")
-        if (
-            arrivals.get("algorithm") != "poisson-v1"
-            or arrivals.get("arrival_seed") != expected.effective_arrival_seed
-            or arrivals.get("request_rate_qps") != 0.70
-        ):
-            problems.append("arrival_provenance_mismatch")
-
-    return {
-        "problems": sorted(set(problems)),
-        "drift": drift,
-        "load_state": load_state,
-        "mechanism_coverage_complete": bool(mechanism and mechanism.coverage_complete),
-    }
-
+    return validate_mechanism_cell(result, run_dir)
 
 def retry_allowed(problems: list[str], attempt: int) -> bool:
     return problems == ["dispatch_drift_exceeded"] and attempt < 2
 
 
 def _cell_outcome(result: ExperimentResult, evidence: MechanismEvidence) -> dict:
-    assert result.aggregates is not None
-    actual_tokens = sum(
-        row.prompt_tokens + row.output_tokens for row in result.measurements if row.success
-    )
-    recomputed = evidence.recomputed_token_executions
-    burden = None if recomputed is None or actual_tokens == 0 else recomputed / actual_tokens
-    assessment = assess_load_state(result.measurements, evidence=result.load_evidence)
-    return {
-        "experiment_id": result.config.experiment_id,
-        "arm": "fp8_kv" if result.config.engine.kv_cache_dtype == "fp8" else "bf16_kv",
-        "throughput_tokens_per_s": result.aggregates.throughput_tokens_per_s,
-        "ttft_p95_ms": result.aggregates.ttft_p95_ms,
-        "tpot_p95_ms": result.aggregates.tpot_p95_ms,
-        "e2e_p95_ms": result.aggregates.e2e_p95_ms,
-        "successes": result.aggregates.num_successful,
-        "load_state": assessment.state,
-        "kv_cache_usage_peak_perc": result.load_evidence.kv_cache_usage_peak_perc,
-        "preemptions": evidence.preemptions,
-        "recomputed_token_executions": recomputed,
-        "actual_prompt_plus_output_tokens": actual_tokens,
-        "recompute_burden": burden,
-        "measured_window_seconds": result.aggregates.duration_s,
-    }
+    return mechanism_cell_outcome(result, evidence)
 
 
 def evaluate_pilot(cells: list[tuple[int, ExperimentResult, MechanismEvidence]]) -> dict:
