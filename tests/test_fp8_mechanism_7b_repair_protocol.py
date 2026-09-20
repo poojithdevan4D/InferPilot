@@ -62,6 +62,8 @@ def test_budget_and_runtime_guards_are_frozen() -> None:
     assert "WORST_CASE_NEXT_CELL_USD = 0.35" in source
     assert "CELL_WALL_TIME_LIMIT_S = 900.0" in source
     assert "max_wall_time_s=CELL_WALL_TIME_LIMIT_S" in source
+    assert "timeout=7200" in source
+    assert "run_study.remote()" in source
     assert 'gpu=GPU' in source
 
 

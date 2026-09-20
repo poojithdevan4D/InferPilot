@@ -92,7 +92,7 @@ def _archive(directory: Path) -> bytes:
 @app.function(
     image=image,
     gpu=GPU,
-    timeout=1000,
+    timeout=7200,
     volumes={REMOTE_CACHE: hf_cache, REMOTE_RESULTS: result_volume},
 )
 def run_study() -> dict:
@@ -237,8 +237,10 @@ def read_status(include_archive: bool = False) -> dict:
 @app.local_entrypoint()
 def main(phase: str = "launch", output_dir: str = "runs/fp8-mechanism-7b-repair") -> None:
     if phase == "launch":
-        call = run_study.spawn()
-        print(json.dumps({"dispatched": True, "function_call_id": call.object_id}, indent=2))
+        # Keep the local invocation attached. Some Modal client versions stop an
+        # ephemeral app before a spawned call starts when the entrypoint exits.
+        # Per-cell and cumulative spend guards remain inside run_study.
+        print(json.dumps(run_study.remote(), indent=2))
         return
     if phase not in {"status", "download"}:
         raise SystemExit("phase must be launch, status, or download")
