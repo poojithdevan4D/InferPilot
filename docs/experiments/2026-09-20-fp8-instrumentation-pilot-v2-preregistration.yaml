@@ -1,0 +1,60 @@
+study:
+  id: inferpilot-fp8-instrumentation-pilot-v2
+  status: adapted_preregistered_before_v2_measurement
+  purpose: >-
+    Repeat the v1 instrumentation pilot with a request timeout large enough to observe the complete
+    registered overloaded queue. This remains a mechanism feasibility pilot, not confirmatory
+    validation of a general fp8 rule.
+  inherits_all_unspecified_fields_from:
+    path: 2026-09-19-fp8-instrumentation-pilot-preregistration.yaml
+    git_commit: dfc5570
+  prior_outcome_inspected: true
+  prior_evidence: 2026-09-20-fp8-instrumentation-pilot-v1-stop.md
+
+adaptation:
+  changed_field: workload.request_timeout_s
+  v1_value: 300
+  v2_value: 1200
+  reason_fixed_before_v2_measurement: >-
+    V1 requests 55-99 all reached the client ReadTimeout before first token; the final successful
+    request had TTFT 298.2 seconds. The server, dispatch, metrics, lifecycle, and mechanism evidence
+    remained healthy. 1200 seconds exceeds the observed complete-work estimate while retaining the
+    identical offered workload and scheduler behavior.
+  unchanged:
+    - model_and_revision
+    - gpu_and_pinned_container
+    - both_kv_cache_arms
+    - engine_controls
+    - prompt_and_arrival_seeds
+    - arm_order
+    - request_count_and_token_lengths
+    - offered_rate
+    - acceptance_gates_except_timeout
+    - outcomes_and_decision_thresholds
+    - retry_and_stopping_rules
+  no_v1_performance_comparison_exists: true
+  interpretation: >-
+    V2 is explicitly adapted after observing a failed baseline cell. Its result can decide whether
+    to fund a larger new held-out study, but cannot retroactively make v1 confirmatory.
+
+execution:
+  experiment_id_prefix: fp8-instrumentation-pilot-v2
+  result_volume: inferpilot-fp8-pilot-results/pilot-v2
+  exact_order:
+    - [1, 9201, 121, bf16_kv]
+    - [1, 9201, 121, fp8_kv]
+    - [2, 9202, 122, fp8_kv]
+    - [2, 9202, 122, bf16_kv]
+    - [3, 9203, 123, bf16_kv]
+    - [3, 9203, 123, fp8_kv]
+  fresh_server_per_cell: true
+  request_timeout_s: 1200
+
+budget:
+  prior_counted_cost_usd: 0.2689
+  target_max_total_usd: 5
+  hard_stop_total_usd: 12
+  absolute_user_limit_usd: 30
+  rule: >-
+    Prior canary and v1 spend count. Before each v2 cell, stop if accrued estimated spend plus the
+    frozen $2 worst-case next-cell allowance would exceed $12.

@@ -17,7 +17,7 @@ from pathlib import Path
 
 import modal
 
-APP_NAME = "inferpilot-fp8-performance-pilot-v1"
+APP_NAME = "inferpilot-fp8-performance-pilot-v2"
 GPU = "A10G"
 IMAGE = (
     "ghcr.io/poojithdevan4d/vllm-inferpilot@"
@@ -25,13 +25,13 @@ IMAGE = (
 )
 REMOTE_CACHE = "/root/.cache/huggingface"
 REMOTE_RESULTS = "/root/inferpilot-pilot-results"
-STUDY_DIR = "pilot-v1"
+STUDY_DIR = "pilot-v2"
 A10G_USD_PER_HOUR = 1.10
 HARD_STOP_USD = 12.0
 WORST_CASE_NEXT_CELL_USD = 2.0
-# Passing discarded semantic canary, documented in the repository.  It counts
-# against the protocol budget even though it cannot enter pilot outcomes.
-PRIOR_CANARY_COST_USD = 0.0781
+# Passing semantic canary plus the stopped v1 cell. Both count against v2's
+# budget even though neither can enter v2 outcomes.
+PRIOR_SPEND_USD = 0.2689
 
 try:
     ROOT = Path(__file__).resolve().parents[2]
@@ -103,7 +103,7 @@ def run_pilot() -> dict:
     attempts: dict[str, int] = {}
     for row in records:
         attempts[row["experiment_id"]] = max(attempts.get(row["experiment_id"], 0), row["attempt"])
-    cumulative_cost = PRIOR_CANARY_COST_USD + sum(
+    cumulative_cost = PRIOR_SPEND_USD + sum(
         row.get("estimated_cell_cost_usd", 0.0) for row in records
     )
 
@@ -130,7 +130,7 @@ def run_pilot() -> dict:
                 config,
                 study,
                 ready_timeout_s=900.0,
-                request_timeout_s=300.0,
+                request_timeout_s=1200.0,
                 metric_requirements=FP8_MECHANISM_REQUIREMENTS,
                 require_metric_capabilities=True,
             )
@@ -204,7 +204,7 @@ def run_pilot() -> dict:
         "content_sha256": report["content_sha256"],
     }
     (study / "status.json").write_text(json.dumps(summary, indent=2))
-    archive_path = study / "pilot-v1.tar.gz"
+    archive_path = study / "pilot-v2.tar.gz"
     if archive_path.exists():
         archive_path.unlink()
     archive_path.write_bytes(_archive(study))
@@ -217,8 +217,8 @@ def read_status(include_archive: bool = False) -> dict:
     study = Path(REMOTE_RESULTS) / STUDY_DIR
     status_path = study / "status.json"
     result = json.loads(status_path.read_text()) if status_path.is_file() else {"status": "NOT_STARTED"}
-    if include_archive and (study / "pilot-v1.tar.gz").is_file():
-        result["archive"] = (study / "pilot-v1.tar.gz").read_bytes()
+    if include_archive and (study / "pilot-v2.tar.gz").is_file():
+        result["archive"] = (study / "pilot-v2.tar.gz").read_bytes()
     return result
 
 

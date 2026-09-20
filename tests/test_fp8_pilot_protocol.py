@@ -53,6 +53,7 @@ def test_execution_order_and_configs_match_frozen_protocol(protocol) -> None:
         }
         assert config.engine.kv_cache_dtype == ("fp8" if arm == "fp8_kv" else "auto")
         assert f"block-{block}" in config.tags
+        assert config.experiment_id.startswith("fp8-instrumentation-pilot-v2-")
 
 
 def test_unregistered_cell_and_retry_rules_fail_closed(protocol) -> None:
@@ -127,7 +128,7 @@ def test_modal_launcher_is_pinned_detached_checkpointed_and_budgeted() -> None:
     assert "run_pilot.spawn()" in source
     assert "result_volume.commit()" in source
     assert "require_metric_capabilities=True" in source
-    assert "request_timeout_s=300.0" in source
+    assert "request_timeout_s=1200.0" in source
     assert "HARD_STOP_USD = 12.0" in source
     assert "WORST_CASE_NEXT_CELL_USD = 2.0" in source
-    assert "PRIOR_CANARY_COST_USD = 0.0781" in source
+    assert "PRIOR_SPEND_USD = 0.2689" in source

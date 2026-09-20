@@ -24,6 +24,8 @@ from inferpilot.saturation import assess_load_state
 
 MODEL = "Qwen/Qwen2.5-3B-Instruct"
 MODEL_REVISION = "aa8e72537993ba99e69dfaafa59ed015b17504d1"
+STUDY_ID = "inferpilot-fp8-instrumentation-pilot-v2"
+EXPERIMENT_PREFIX = "fp8-instrumentation-pilot-v2"
 MAX_DRIFT_P95_MS = 10.0
 NUM_REQUESTS = 100
 WARMUP_REQUESTS = 4
@@ -45,7 +47,7 @@ def execution_order() -> tuple[tuple[int, int, int, str], ...]:
 
 
 def experiment_id(block: int, arm: str) -> str:
-    return f"fp8-instrumentation-pilot-b{block}-{arm.replace('_', '-')}"
+    return f"{EXPERIMENT_PREFIX}-b{block}-{arm.replace('_', '-')}"
 
 
 def config_for(block: int, prompt_seed: int, arrival_seed: int, arm: str) -> ExperimentConfig:
@@ -342,7 +344,7 @@ def evaluate_pilot(cells: list[tuple[int, ExperimentResult, MechanismEvidence]])
     )
     payload = {
         "report_version": "0.1.0",
-        "study_id": "inferpilot-fp8-instrumentation-pilot-v1",
+        "study_id": STUDY_ID,
         "decision": decision,
         "paired_blocks": pairs,
         "geometric_mean_throughput_ratio": geometric_ratio,
