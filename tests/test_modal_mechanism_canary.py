@@ -32,3 +32,5 @@ def test_modal_canary_cannot_launch_registered_performance_cells() -> None:
     assert '"async-scheduling": False' in source
     assert "enable_prefix_caching=False" in source
     assert "speculative" not in source.lower()
+    assert "inferpilot-fp8-canary-results" in source
+    assert "result_volume.commit()" in source

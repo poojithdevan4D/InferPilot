@@ -25,6 +25,8 @@ IMAGE = (
 MODEL = "Qwen/Qwen2.5-3B-Instruct"
 MODEL_REVISION = "aa8e72537993ba99e69dfaafa59ed015b17504d1"
 REMOTE_CACHE = "/root/.cache/huggingface"
+REMOTE_RESULTS = "/root/inferpilot-results"
+CANARY_ATTEMPT = "semantic-canary-attempt-1"
 
 try:
     ROOT = Path(__file__).resolve().parents[2]
@@ -52,6 +54,9 @@ if WHEEL is not None:
 
 app = modal.App(APP_NAME)
 hf_cache = modal.Volume.from_name("inferpilot-hf-cache", create_if_missing=True)
+result_volume = modal.Volume.from_name(
+    "inferpilot-fp8-canary-results", create_if_missing=True
+)
 
 
 def _archive(directory: Path) -> bytes:
@@ -145,7 +150,7 @@ def probe() -> dict:
     image=image,
     gpu=GPU,
     timeout=2400,
-    volumes={REMOTE_CACHE: hf_cache},
+    volumes={REMOTE_CACHE: hf_cache, REMOTE_RESULTS: result_volume},
 )
 def run_semantic_canary() -> dict:
     """Run fresh-server control and pressure arms and return every artifact."""
@@ -160,7 +165,11 @@ def run_semantic_canary() -> dict:
     os.environ.setdefault("HUGGINGFACE_HUB_CACHE", REMOTE_CACHE)
 
     with tempfile.TemporaryDirectory(prefix="inferpilot-real-canary-") as raw:
-        output = Path(raw)
+        scratch = Path(raw)
+        output = Path(REMOTE_RESULTS) / CANARY_ATTEMPT
+        if output.exists():
+            raise FileExistsError(f"refusing to overwrite {output}")
+        output.mkdir(parents=True)
         summaries = []
         evidence = []
         for name, pressure in (
@@ -193,6 +202,7 @@ def run_semantic_canary() -> dict:
             summaries.append(item)
             if evidence_path is not None and evidence_path.exists():
                 evidence.append(MechanismEvidence.model_validate_json(evidence_path.read_text()))
+            result_volume.commit()
 
         verdict = None
         if len(evidence) == 2 and all(item["status"] == "completed" for item in summaries):
@@ -219,7 +229,11 @@ def run_semantic_canary() -> dict:
             "pressure_iterations": len(evidence[1].iterations) if len(evidence) == 2 else None,
         }
         (output / "modal-canary-summary.json").write_text(json.dumps(summary, indent=2))
-        return {"summary": summary, "archive": _archive(output)}
+        archive = _archive(output)
+        (scratch / "semantic-canary-attempt-1.tar.gz").write_bytes(archive)
+        (Path(REMOTE_RESULTS) / "semantic-canary-attempt-1.tar.gz").write_bytes(archive)
+        result_volume.commit()
+        return {"summary": summary, "archive": archive}
 
 
 @app.local_entrypoint()
