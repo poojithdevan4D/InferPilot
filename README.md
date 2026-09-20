@@ -70,7 +70,9 @@ that the current runner does not yet collect. A smaller six-cell
 [`instrumentation pilot`](docs/experiments/2026-09-19-fp8-instrumentation-pilot-preregistration.yaml)
 is frozen behind an explicit
 [`GO / NO-GO checklist`](docs/experiments/2026-09-19-fp8-instrumentation-pilot-checklist.md).
-This prevents an expensive but scientifically unusable run.
+The pinned real-server [mechanism canary](docs/experiments/2026-09-20-fp8-mechanism-canary-results.md)
+passed its negative/positive counter checks; the six-cell performance pilot remains separate. This
+prevents an expensive but scientifically unusable run.
 
 ## What it does (the reasoning pipeline)
 
