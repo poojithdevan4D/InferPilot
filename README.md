@@ -52,7 +52,7 @@ uv run python scripts/mechanism_canary_dry_run.py # exact counter/log ingestion 
 uv run python scripts/aligned_load_demo.py   # healthy / overloaded / abstain, GPU-free
 uv run python scripts/fp8_law_demo.py        # real legacy measurements + evidence status
 uv run python scripts/cost_rescue_demo.py    # measured economics; no retroactive diagnosis
-uv run --extra dev pytest -q                 # 484 tests; no GPU required
+uv run --extra dev pytest -q                 # 501 tests; no GPU required
 ```
 
 For a technical review, read these in order:
@@ -63,7 +63,7 @@ For a technical review, read these in order:
 4. [`src/inferpilot/runner/load_evidence.py`](src/inferpilot/runner/load_evidence.py) — instrumentation for diagnosis-capable future runs.
 5. [`docs/experiments/`](docs/experiments/) — preregistrations, positive results, invalid studies, and honest negatives.
 
-The original 144-cell GPU milestone is intentionally blocked pending the
+The original 144-cell GPU milestone remains blocked pending the
 [`fp8 held-out readiness audit`](docs/experiments/2026-09-19-fp8-heldout-readiness-audit.md): the
 registered mechanism study asks for exact recomputed-token, ITL, and variable-length workload evidence
 that the current runner does not yet collect. A smaller six-cell
@@ -71,8 +71,12 @@ that the current runner does not yet collect. A smaller six-cell
 is frozen behind an explicit
 [`GO / NO-GO checklist`](docs/experiments/2026-09-19-fp8-instrumentation-pilot-checklist.md).
 The pinned real-server [mechanism canary](docs/experiments/2026-09-20-fp8-mechanism-canary-results.md)
-passed its negative/positive counter checks; the six-cell performance pilot remains separate. This
-prevents an expensive but scientifically unusable run.
+passed its negative/positive counter checks. The adapted six-cell
+[performance pilot](docs/experiments/2026-09-20-fp8-instrumentation-pilot-v2-results.md) then completed
+6/6 valid cells and measured a 1.308× geometric-mean FP8/BF16 throughput ratio, but correctly returned
+`NOT_TARGET_REGIME`: one baseline block was only near-capacity, all baseline recompute burdens were
+below the registered 10% floor, and one paired gain was below 1.15×. The larger campaign therefore
+remains unauthorized despite a promising directional signal.
 
 ## What it does (the reasoning pipeline)
 
