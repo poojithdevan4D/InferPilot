@@ -1,6 +1,6 @@
 study:
   id: inferpilot-fp8-instrumentation-pilot-v1
-  status: preregistered_blocked_pending_metric_gates
+  status: preregistered_ready_after_metric_gates
   purpose: >-
     Decide whether exact recomputation instrumentation and the observed fp8 effect are strong
     enough to justify the larger held-out campaign. This is a mechanism/instrumentation pilot,
@@ -21,14 +21,36 @@ scope:
     - id: fp8_kv
       kv_cache_dtype: fp8
   fixed_engine_fields:
+    dtype: bfloat16
     max_model_len: 9216
+    max_num_seqs: 128
+    max_num_batched_tokens: 2048
     gpu_memory_utilization: 0.90
     generation_config: vllm
     enable_prefix_caching: false
+    enable_chunked_prefill: true
     async_scheduling: false
     speculative_decoding: disabled_no_speculative_model_or_flags
     enable_logging_iteration_details: true
   only_varied_engine_field: kv_cache_dtype
+
+preregistration_amendments:
+  - date: 2026-09-20
+    timing: before_any_performance_pilot_cell_or_outcome
+    reason: >-
+      MechanismEvidence requires an explicit max_num_seqs bound, while the original freeze left
+      scheduler defaults implicit. Pin the vLLM 0.29.0 default-equivalent scheduler values and the
+      compute dtype already observed in the discarded passing semantic canary. This amendment does
+      not change either arm, workload, outcome, threshold, seed, order, or decision rule.
+    added_fixed_fields:
+      dtype: bfloat16
+      max_num_seqs: 128
+      max_num_batched_tokens: 2048
+      enable_chunked_prefill: true
+    source: >-
+      vLLM 0.29.0 SchedulerConfig defaults: DEFAULT_MAX_NUM_SEQS=128,
+      DEFAULT_MAX_NUM_BATCHED_TOKENS=2048, enable_chunked_prefill=true.
+    outcome_data_inspected_before_amendment: false
 
 workload:
   arrival_pattern: poisson-v1
