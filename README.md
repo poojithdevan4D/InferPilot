@@ -101,6 +101,12 @@ See the [guided-assessment contract](docs/product/guided-assessment.md).
 After collecting an operator-reviewed baseline, candidate, and the preregistered quality evidence:
 
 ```bash
+.venv-bench/bin/inferpilot bind-quality teacher-forced-kl evidence/kl-gate.json \
+  runs/baseline runs/candidate \
+  --corpus-id operator-eval-v1 \
+  --corpus-sha256 <sha256> \
+  --output evidence/teacher-forced-kl.json
+
 .venv-bench/bin/inferpilot gate examples/configuration_gate_spec.json \
   runs/baseline runs/candidate \
   --quality-evidence evidence/teacher-forced-kl.json \
@@ -203,7 +209,7 @@ They are evidence for reviewers, not required reading for first use.
 ## Verify the repository
 
 ```bash
-uv run --extra dev pytest -q  # 534 tests, no GPU
+uv run --extra dev pytest -q  # 535 tests, no GPU
 uv build
 ```
 

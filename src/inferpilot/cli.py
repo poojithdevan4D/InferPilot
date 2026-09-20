@@ -243,6 +243,42 @@ def _gate(args: argparse.Namespace) -> int:
     return {"pass": 0, "fail": 1, "abstain": 2}[report.verdict]
 
 
+def _bind_quality(args: argparse.Namespace) -> int:
+    from .configuration_gate import bind_quality_evidence
+    from .quality import KLQualityGate, NeedleQualityGate
+
+    if args.output.exists():
+        print(f"refusing to overwrite existing output: {args.output}", file=sys.stderr)
+        return 2
+    try:
+        baseline_path, _, _ = _bundle_files(args.baseline)
+        candidate_path, _, _ = _bundle_files(args.candidate)
+        baseline = ExperimentResult.model_validate_json(baseline_path.read_text())
+        candidate = ExperimentResult.model_validate_json(candidate_path.read_text())
+        raw_gate = args.gate.read_text()
+        gate_type = {
+            "teacher-forced-kl": KLQualityGate,
+            "needle-retrieval": NeedleQualityGate,
+        }[args.kind]
+        gate = gate_type.model_validate_json(raw_gate)
+        evidence = bind_quality_evidence(
+            baseline,
+            candidate,
+            corpus_id=args.corpus_id,
+            corpus_sha256=args.corpus_sha256,
+            gate=gate,
+        )
+    except (OSError, RuntimeError, ValueError, ValidationError) as exc:
+        print(f"cannot bind quality evidence: {exc}", file=sys.stderr)
+        return 2
+
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    args.output.write_text(evidence.model_dump_json(indent=2) + "\n")
+    print(f"Bound quality evidence: {args.output}")
+    print(f"Gate: {evidence.kind} ({'PASS' if evidence.gate.passed else 'FAIL'})")
+    return 0
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="inferpilot",
@@ -285,6 +321,20 @@ def _parser() -> argparse.ArgumentParser:
     )
     gate.add_argument("--output", type=Path, required=True)
     gate.set_defaults(handler=_gate)
+    bind_quality = sub.add_parser(
+        "bind-quality",
+        help="bind a measured quality gate to exact baseline/candidate runs",
+    )
+    bind_quality.add_argument(
+        "kind", choices=("teacher-forced-kl", "needle-retrieval")
+    )
+    bind_quality.add_argument("gate", type=Path, help="measured quality-gate JSON")
+    bind_quality.add_argument("baseline", type=Path)
+    bind_quality.add_argument("candidate", type=Path)
+    bind_quality.add_argument("--corpus-id", required=True)
+    bind_quality.add_argument("--corpus-sha256", required=True)
+    bind_quality.add_argument("--output", type=Path, required=True)
+    bind_quality.set_defaults(handler=_bind_quality)
     analyze = sub.add_parser(
         "analyze",
         help="diagnose one metadata-only run bundle and recommend a bounded experiment",

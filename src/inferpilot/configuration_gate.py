@@ -300,3 +300,24 @@ def evaluate_configuration_gate(
         verdict=verdict,
         reasons=reasons,
     )
+
+
+def bind_quality_evidence(
+    baseline: ExperimentResult,
+    candidate: ExperimentResult,
+    *,
+    corpus_id: str,
+    corpus_sha256: str,
+    gate: QualityGate,
+) -> BoundQualityEvidence:
+    """Bind an already measured quality gate to exact run configurations."""
+    return BoundQualityEvidence(
+        baseline_experiment_id=baseline.config.experiment_id,
+        candidate_experiment_id=candidate.config.experiment_id,
+        baseline_fingerprint=exact_fingerprint(baseline),
+        candidate_fingerprint=exact_fingerprint(candidate),
+        corpus_id=corpus_id,
+        corpus_sha256=corpus_sha256,
+        kind=_quality_kind(gate),
+        gate=gate,
+    )

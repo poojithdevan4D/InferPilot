@@ -44,6 +44,7 @@ from .configuration_gate import (
     BoundQualityEvidence,
     ConfigurationGateReport,
     ConfigurationGateSpec,
+    bind_quality_evidence,
     evaluate_configuration_gate,
 )
 from .results import AggregateMetrics, ExperimentResult
@@ -138,6 +139,7 @@ __all__ = [
     "BoundQualityEvidence",
     "ConfigurationGateReport",
     "ConfigurationGateSpec",
+    "bind_quality_evidence",
     "evaluate_configuration_gate",
     "AggregateMetrics",
     "ExperimentResult",

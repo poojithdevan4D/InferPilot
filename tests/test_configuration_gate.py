@@ -8,6 +8,7 @@ from inferpilot.configuration_gate import (
     BoundQualityEvidence,
     ConfigurationGateReport,
     ConfigurationGateSpec,
+    bind_quality_evidence,
     evaluate_configuration_gate,
 )
 from inferpilot.comparison.fingerprint import exact_fingerprint
@@ -277,3 +278,45 @@ def test_gate_cli_writes_report_and_uses_verdict_as_exit_status(tmp_path, capsys
     assert "Configuration gate: PASS" in capsys.readouterr().out
     report = ConfigurationGateReport.model_validate_json(paths["report"].read_text())
     assert report.verdict == "pass"
+
+
+def test_quality_binder_computes_run_identity_and_cli_writes_envelope(
+    tmp_path, capsys
+):
+    baseline, candidate = _pair()
+    gate = _quality().gate
+    evidence = bind_quality_evidence(
+        baseline,
+        candidate,
+        corpus_id="operator-eval-v1",
+        corpus_sha256=SHA,
+        gate=gate,
+    )
+    assert evidence.baseline_fingerprint == exact_fingerprint(baseline)
+    assert evidence.candidate_fingerprint == exact_fingerprint(candidate)
+
+    baseline_path = tmp_path / "baseline.json"
+    candidate_path = tmp_path / "candidate.json"
+    gate_path = tmp_path / "gate.json"
+    output_path = tmp_path / "bound.json"
+    baseline_path.write_text(baseline.model_dump_json())
+    candidate_path.write_text(candidate.model_dump_json())
+    gate_path.write_text(gate.model_dump_json())
+    code = main(
+        [
+            "bind-quality",
+            "teacher-forced-kl",
+            str(gate_path),
+            str(baseline_path),
+            str(candidate_path),
+            "--corpus-id",
+            "operator-eval-v1",
+            "--corpus-sha256",
+            SHA,
+            "--output",
+            str(output_path),
+        ]
+    )
+    assert code == 0
+    assert "Gate: teacher_forced_kl (PASS)" in capsys.readouterr().out
+    assert BoundQualityEvidence.model_validate_json(output_path.read_text()) == evidence

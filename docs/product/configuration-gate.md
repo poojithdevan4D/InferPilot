@@ -3,6 +3,20 @@
 `inferpilot gate` combines an operator-reviewed policy, two measured run bundles, and quality
 evidence into one deterministic `PASS`, `FAIL`, or `ABSTAIN` report.
 
+First bind each measured quality-gate artifact to the exact run pair and corpus:
+
+```bash
+inferpilot bind-quality teacher-forced-kl evidence/kl-gate.json \
+  runs/baseline runs/candidate \
+  --corpus-id operator-eval-v1 \
+  --corpus-sha256 <sha256> \
+  --output evidence/teacher-forced-kl.json
+```
+
+Use `needle-retrieval` for a `NeedleQualityGate`. The binder computes experiment IDs and
+configuration fingerprints from the run bundles; operators do not hand-author those identities.
+It does not receive or persist prompt text.
+
 ```bash
 inferpilot gate examples/configuration_gate_spec.json \
   runs/baseline runs/candidate \
