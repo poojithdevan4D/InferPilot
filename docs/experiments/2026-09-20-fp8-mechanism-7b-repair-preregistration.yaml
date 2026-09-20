@@ -1,0 +1,62 @@
+study:
+  id: inferpilot-fp8-mechanism-7b-repair-v1
+  status: preregistered_before_repair_measurement
+  purpose: >-
+    Repair the invalid 7B held-out mechanism study without changing its model,
+    arms, hypotheses, thresholds, or decision rule.
+  predecessor: inferpilot-fp8-mechanism-7b-heldout-v1
+  predecessor_status: INVALID_STOP
+  predecessor_failure: >-
+    The second cell's deterministic finite Poisson schedule ended at 27.7 seconds,
+    below the registered 30-second load-evidence minimum. No predecessor outcome
+    comparison was performed. The two preserved attempts are excluded.
+  predecessor_outcomes_inspected: true
+  interpretation: >-
+    This is a transparent design-repair study, not a pristine first-look held-out
+    confirmation. New seeds prevent reuse of predecessor measurements.
+
+frozen_from_predecessor:
+  model: Qwen/Qwen2.5-7B-Instruct
+  model_revision: a09a35458c702b33eeacc393d103063234e8bc28
+  gpu: A10G
+  engine_version: 0.29.0
+  image_digest: sha256:725769f8279dd5d50fc366fb9183a687e19ea1669ad4cdb2fa3904c29a3d35c1
+  varied_field: kv_cache_dtype
+  arms: {bf16_kv: auto, fp8_kv: fp8}
+  hypotheses_and_thresholds: exactly_protocol_v1_unchanged
+  execution_order: exactly_protocol_v1_shape_and_arm_order_unchanged
+
+repair_only_changes:
+  blocks:
+    - {block: 1, prompt_seed: 9501, arrival_seed: 151}
+    - {block: 2, prompt_seed: 9502, arrival_seed: 152}
+    - {block: 3, prompt_seed: 9503, arrival_seed: 153}
+  long_context_requests: 100
+  short_context_requests: 128
+  frozen_short_schedule_last_arrival_seconds: [33.726, 35.475, 30.556]
+  reason: every deterministic schedule must cover the 30-second evidence minimum
+
+acceptance_and_stop:
+  validator: inferpilot.runner.mechanism_study.validate_mechanism_cell
+  minimum_window_seconds: 30
+  dispatch_drift_p95_ms_max: 10
+  retry_once_only_for: sole_dispatch_drift_exceeded
+  any_other_rejection: invalidate_and_stop_before_comparison
+  preserve_every_attempt: true
+  no_seed_substitution: true
+
+budget:
+  gpu: A10G
+  rate_usd_per_gpu_hour: 1.10
+  performance_incremental_hard_stop_usd: 2.25
+  quality_reserve_usd: 0.75
+  total_incremental_authorization_usd: 3.00
+  worst_case_next_cell_allowance_usd: 0.30
+  enforcement: stop before launching a cell if accrued_incremental_plus_allowance_exceeds_2.25
+
+excluded_claims:
+  - pristine_first_look_confirmation
+  - cross_model_or_cross_engine_generality
+  - production_traffic_behavior
+  - quality_safety
+  - deployment_readiness
