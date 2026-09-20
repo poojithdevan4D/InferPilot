@@ -43,6 +43,23 @@ without aligned evidence it abstains instead of guessing from GPU/KV snapshots.
 That abstention is the whole point: most tools guess a bottleneck from a GPU-utilization snapshot.
 InferPilot refuses to, unless the per-window request/queue/token evidence actually supports it.
 
+## Operator workflow: one bounded next step
+
+After an InferPilot benchmark run, turn the metadata-only bundle into a self-validating Evidence Card:
+
+```bash
+inferpilot analyze runs/<experiment-id> \
+  --ttft-p95-ms 500 --tpot-p95-ms 40 \
+  --gpu-cost-per-hour 1.10 --target-qps 4 \
+  --output evidence-card.json
+```
+
+The command reports one of three outcomes: keep the current configuration for the observed window,
+run one bounded baseline-versus-candidate experiment, or abstain and name the missing evidence. It
+does not inspect prompt/output text, invent a bottleneck from workload shape, or change a deployment.
+Today the only setting it can nominate is the already evidence-gated fp8-KV canary; unfamiliar or
+incomplete cases fail closed. See the [offline optimizer product boundary](docs/product/offline-optimizer.md).
+
 ## Five-minute review
 
 ```bash
@@ -52,7 +69,7 @@ uv run python scripts/mechanism_canary_dry_run.py # exact counter/log ingestion 
 uv run python scripts/aligned_load_demo.py   # healthy / overloaded / abstain, GPU-free
 uv run python scripts/fp8_law_demo.py        # real legacy measurements + evidence status
 uv run python scripts/cost_rescue_demo.py    # measured economics; no retroactive diagnosis
-uv run --extra dev pytest -q                 # 507 tests; no GPU required
+uv run --extra dev pytest -q                 # 513 tests; no GPU required
 ```
 
 For a technical review, read these in order:

@@ -31,6 +31,7 @@ from .mechanism import (
     SchedulerIteration,
     evaluate_mechanism_canary,
 )
+from .evidence_card import OptimizationEvidenceCard, build_evidence_card
 from .results import AggregateMetrics, ExperimentResult
 from .deployment import (
     DeploymentOption,
@@ -112,6 +113,8 @@ __all__ = [
     "MechanismEvidence",
     "MechanismCanaryReport",
     "evaluate_mechanism_canary",
+    "OptimizationEvidenceCard",
+    "build_evidence_card",
     "AggregateMetrics",
     "ExperimentResult",
     "ExperimentStatus",

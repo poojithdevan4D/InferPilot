@@ -14,6 +14,9 @@ dependencies = [
     "httpx>=0.27,<1",
 ]
 
+[project.scripts]
+inferpilot = "inferpilot.cli:main"
+
 # The serving engine is intentionally NOT a project dependency: it is launched as
 # a subprocess and must be installed in a dedicated Python 3.12 environment.
 # Pinned exactly to vllm==0.29.0 (see README and inferpilot.runner.defaults).
