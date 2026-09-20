@@ -200,6 +200,49 @@ def _assess(args: argparse.Namespace) -> int:
     return 0
 
 
+def _gate(args: argparse.Namespace) -> int:
+    from .configuration_gate import (
+        BoundQualityEvidence,
+        ConfigurationGateSpec,
+        evaluate_configuration_gate,
+    )
+
+    if args.output.exists():
+        print(f"refusing to overwrite existing output: {args.output}", file=sys.stderr)
+        return 2
+    try:
+        spec = ConfigurationGateSpec.model_validate_json(args.spec.read_text())
+        baseline_path, _, _ = _bundle_files(args.baseline)
+        candidate_path, _, _ = _bundle_files(args.candidate)
+        baseline = ExperimentResult.model_validate_json(baseline_path.read_text())
+        candidate = ExperimentResult.model_validate_json(candidate_path.read_text())
+        quality = tuple(
+            BoundQualityEvidence.model_validate_json(path.read_text())
+            for path in args.quality_evidence
+        )
+        report = evaluate_configuration_gate(spec, baseline, candidate, quality)
+    except (OSError, RuntimeError, ValueError, ValidationError) as exc:
+        print(f"cannot evaluate configuration gate: {exc}", file=sys.stderr)
+        return 2
+
+    print(f"Configuration gate: {report.verdict.upper()}")
+    if report.comparison is not None:
+        print(f"Performance: {report.comparison.verdict}")
+    for check in report.candidate_slo_checks:
+        print(
+            f"SLO: {check.metric}={check.observed_worst:g} "
+            f"{check.operator} {check.threshold:g} "
+            f"({'PASS' if check.passed else 'FAIL'})"
+        )
+    for reason in report.reasons:
+        print(f"Reason: {reason}")
+    print("Deployment: NOT AUTHORIZED; operator review and canary remain required")
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    args.output.write_text(report.model_dump_json(indent=2) + "\n")
+    print(f"Gate report: {args.output}")
+    return {"pass": 0, "fail": 1, "abstain": 2}[report.verdict]
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="inferpilot",
@@ -226,6 +269,22 @@ def _parser() -> argparse.ArgumentParser:
     assess.add_argument("--ready-timeout", type=float, default=300.0)
     assess.add_argument("--request-timeout", type=float, default=120.0)
     assess.set_defaults(handler=_assess)
+    gate = sub.add_parser(
+        "gate",
+        help="evaluate one controlled candidate as PASS, FAIL, or ABSTAIN",
+    )
+    gate.add_argument("spec", type=Path, help="ConfigurationGateSpec JSON")
+    gate.add_argument("baseline", type=Path, help="baseline run directory or result.json")
+    gate.add_argument("candidate", type=Path, help="candidate run directory or result.json")
+    gate.add_argument(
+        "--quality-evidence",
+        type=Path,
+        action="append",
+        default=[],
+        help="bound quality-evidence JSON; repeat for every required gate",
+    )
+    gate.add_argument("--output", type=Path, required=True)
+    gate.set_defaults(handler=_gate)
     analyze = sub.add_parser(
         "analyze",
         help="diagnose one metadata-only run bundle and recommend a bounded experiment",

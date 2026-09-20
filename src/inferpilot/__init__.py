@@ -40,6 +40,12 @@ from .assessment import (
     build_budget,
     build_candidate_plan,
 )
+from .configuration_gate import (
+    BoundQualityEvidence,
+    ConfigurationGateReport,
+    ConfigurationGateSpec,
+    evaluate_configuration_gate,
+)
 from .results import AggregateMetrics, ExperimentResult
 from .deployment import (
     DeploymentOption,
@@ -129,6 +135,10 @@ __all__ = [
     "build_assessment_plan",
     "build_budget",
     "build_candidate_plan",
+    "BoundQualityEvidence",
+    "ConfigurationGateReport",
+    "ConfigurationGateSpec",
+    "evaluate_configuration_gate",
     "AggregateMetrics",
     "ExperimentResult",
     "ExperimentStatus",

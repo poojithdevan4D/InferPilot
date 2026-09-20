@@ -7,8 +7,9 @@ order. Choose the path that matches your goal.
 
 1. Run `uv run inferpilot demo` from the repository root.
 2. Read [the guided assessment](product/guided-assessment.md).
-3. Read [the offline optimizer boundary](product/offline-optimizer.md).
-4. Inspect [`evidence_card.py`](../src/inferpilot/evidence_card.py) and its
+3. Read [the configuration acceptance gate](product/configuration-gate.md).
+4. Read [the offline optimizer boundary](product/offline-optimizer.md).
+5. Inspect [`evidence_card.py`](../src/inferpilot/evidence_card.py) and its
    [tests](../tests/test_evidence_card.py).
 
 ## I want to evaluate the scientific claim

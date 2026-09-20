@@ -96,6 +96,24 @@ Replace the example's illustrative SLO and price with your own constraints.
 
 See the [guided-assessment contract](docs/product/guided-assessment.md).
 
+## Gate a measured candidate
+
+After collecting an operator-reviewed baseline, candidate, and the preregistered quality evidence:
+
+```bash
+.venv-bench/bin/inferpilot gate examples/configuration_gate_spec.json \
+  runs/baseline runs/candidate \
+  --quality-evidence evidence/teacher-forced-kl.json \
+  --quality-evidence evidence/needle-retrieval.json \
+  --output configuration-gate-report.json
+```
+
+The result is `PASS`, `FAIL`, or `ABSTAIN`. `PASS` requires compatible aligned-load evidence,
+candidate Pareto improvement, every declared SLO, and quality evidence bound to the exact
+experiment IDs, configuration fingerprints, and corpus. Precision-changing candidates require both
+teacher-forced KL and long-context retrieval gates. The report always keeps deployment unauthorized. See the
+[configuration-gate contract](docs/product/configuration-gate.md).
+
 ## Analyze an existing run
 
 Given an InferPilot runner bundle:
@@ -146,6 +164,7 @@ writes an immutable run directory under `runs/`.
 | Aligned load assessment with explicit abstention | Working |
 | Operator Evidence Card and costed next experiment | Working |
 | GPU-free preflight and hard-bounded guided assessment | Working |
+| Deterministic performance/SLO/quality acceptance gate | Working |
 | Cohort comparison, SLO gates, Pareto and blocked studies | Working |
 | FP8-KV quality and long-context gates | Working, limited evidence |
 | Automatic production traffic capture | Not built |
@@ -184,7 +203,7 @@ They are evidence for reviewers, not required reading for first use.
 ## Verify the repository
 
 ```bash
-uv run --extra dev pytest -q  # 525 tests, no GPU
+uv run --extra dev pytest -q  # 534 tests, no GPU
 uv build
 ```
 
@@ -192,10 +211,10 @@ The package supports Python 3.10–3.14. Dependencies are locked in `uv.lock`.
 
 ## Near-term direction
 
-The next product milestone is a deterministic configuration gate: run an operator-reviewed baseline
-and candidate under identical conditions, evaluate performance/SLO evidence plus an explicitly chosen
-workload-quality gate, and return `PASS`, `FAIL`, or `ABSTAIN`. Production integration comes only
-after this local safety boundary is trustworthy and repeatedly useful.
+The next product milestone is quality-evidence collection that produces the gate's bound
+teacher-forced-KL and long-context retrieval inputs without hand-authored adapters, followed by a
+controlled canary handoff. Production integration comes only after this local safety boundary is
+trustworthy and repeatedly useful.
 
 InferPilot's rule is simple: **measure, bind the evidence, recommend one test, and abstain when the
 claim is not supported.**

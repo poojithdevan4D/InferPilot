@@ -6,9 +6,13 @@ import json
 from pathlib import Path
 
 from inferpilot import ExperimentConfig
+from inferpilot.configuration_gate import ConfigurationGateSpec
 
 EXAMPLE = Path(__file__).resolve().parents[1] / "examples" / "example_experiment.json"
 ASSESSMENT = Path(__file__).resolve().parents[1] / "examples" / "assessment_config.json"
+GATE_SPEC = (
+    Path(__file__).resolve().parents[1] / "examples" / "configuration_gate_spec.json"
+)
 C4_SEQ1 = Path(__file__).resolve().parents[1] / "examples" / "experiment_c4_seq1.json"
 C4_SEQ2 = Path(__file__).resolve().parents[1] / "examples" / "experiment_c4_seq2.json"
 C4_SEQ4 = Path(__file__).resolve().parents[1] / "examples" / "experiment_c4_seq4.json"
@@ -48,6 +52,15 @@ def test_assessment_example_is_diagnosis_capable_and_operator_scoped() -> None:
     assert cfg.workload.warmup_requests >= 1
     assert cfg.slo is not None
     assert "illustrative-slo" in cfg.tags
+
+
+def test_configuration_gate_example_requires_both_precision_quality_gates() -> None:
+    spec = ConfigurationGateSpec.model_validate_json(GATE_SPEC.read_text())
+    assert spec.varied_engine_fields == ("kv_cache_dtype",)
+    assert set(spec.required_quality_gates) == {
+        "teacher_forced_kl",
+        "needle_retrieval",
+    }
 
 
 def test_unknown_field_is_rejected() -> None:
