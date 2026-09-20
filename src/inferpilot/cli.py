@@ -110,9 +110,36 @@ def _analyze(args: argparse.Namespace) -> int:
     return 0
 
 
+def _demo(args: argparse.Namespace) -> int:
+    from .demo import build_demo_card
+
+    if args.output is not None and args.output.exists():
+        print(f"refusing to overwrite existing output: {args.output}", file=sys.stderr)
+        return 2
+    card = build_demo_card()
+    print("InferPilot quickstart (synthetic metadata; no GPU)\n")
+    _print_summary(card)
+    print("\nWhy: aligned arrivals/completions show backlog growth while KV is 99% full")
+    print("      and preemptions are observed. The candidate is a test, not a deployment.")
+    if args.output is not None:
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        args.output.write_text(card.model_dump_json(indent=2) + "\n")
+        print(f"\nEvidence card: {args.output}")
+    return 0
+
+
 def _parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="inferpilot")
+    parser = argparse.ArgumentParser(
+        prog="inferpilot",
+        description="Evidence-gated optimization for LLM inference serving.",
+    )
     sub = parser.add_subparsers(dest="command", required=True)
+    demo = sub.add_parser(
+        "demo",
+        help="run the complete decision pipeline on synthetic metadata (no GPU)",
+    )
+    demo.add_argument("--output", type=Path, help="optionally write the Evidence Card JSON")
+    demo.set_defaults(handler=_demo)
     analyze = sub.add_parser(
         "analyze",
         help="diagnose one metadata-only run bundle and recommend a bounded experiment",

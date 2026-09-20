@@ -6,6 +6,7 @@ from pydantic import ValidationError
 from inferpilot import OptimizationEvidenceCard, SLO, build_evidence_card
 from inferpilot.advisor import OperatorEconomics
 from inferpilot.cli import main
+from inferpilot.demo import build_demo_card
 from test_load_state import make_evidence, make_result
 
 
@@ -89,3 +90,22 @@ def test_cli_requires_an_explicit_operator_slo(tmp_path, capsys):
     path.write_text(json.dumps(make_result().model_dump(mode="json")))
     assert main(["analyze", str(path), "--gpu-cost-per-hour", "2.10"]) == 2
     assert "at least one SLO" in capsys.readouterr().err
+
+
+def test_gpu_free_demo_exercises_the_real_decision_path():
+    card = build_demo_card()
+    assert card.baseline_result.config.tags == ["synthetic-demo", "no-gpu"]
+    assert card.recommendation.advisory.diagnosis.load_state == "overloaded"
+    assert card.recommendation.advisory.diagnosis.regime == "kv_pressure"
+    assert card.status == "experiment_recommended"
+    assert card.candidate_engine_overrides == {"kv_cache_dtype": "fp8"}
+    assert card.estimated_paired_experiment_cost_usd == pytest.approx(1 / 30)
+
+
+def test_demo_cli_is_clear_and_can_persist_the_card(tmp_path, capsys):
+    output = tmp_path / "evidence-card.json"
+    assert main(["demo", "--output", str(output)]) == 0
+    text = capsys.readouterr().out
+    assert "synthetic metadata; no GPU" in text
+    assert "candidate is a test, not a deployment" in text
+    assert OptimizationEvidenceCard.model_validate_json(output.read_text()).metadata_only
