@@ -70,7 +70,33 @@ The important design choice is the aligned evidence layer. A high GPU reading is
 a server compute-bound. InferPilot requires a conserved view of arrivals, completions, queued work,
 and delivered tokens. If that view is incomplete, it abstains.
 
-## Analyze a real run
+## Assess a configuration safely
+
+The guided path validates the plan before spending GPU time:
+
+```bash
+.venv-bench/bin/inferpilot assess examples/assessment_config.json \
+  --dry-run \
+  --max-wall-time-s 600 \
+  --gpu-cost-per-hour 1.10 \
+  --max-cost-usd 0.25
+```
+
+The dry run never starts a server, loads model weights, or allocates GPU memory. It writes a
+self-validating `assessment-plan.json`, prints the exact planned vLLM command, checks whether this
+environment can execute it, and calculates a strict maximum from the operator's wall-time and price.
+The ceiling reserves time for forced cleanup. Static metadata deliberately reports model fit and
+candidate quality as unknown.
+
+Run the same command without `--dry-run` to execute one bounded baseline. InferPilot reuses the
+existing runner, persists its bundle before diagnosis, and then writes an Evidence Card. If the card
+supports a candidate, it also writes `experiment-plan.json`; that plan is explicitly **not authorized
+for automatic execution** and includes the still-unverified quality, long-context, and Pareto gates.
+Replace the example's illustrative SLO and price with your own constraints.
+
+See the [guided-assessment contract](docs/product/guided-assessment.md).
+
+## Analyze an existing run
 
 Given an InferPilot runner bundle:
 
@@ -119,6 +145,7 @@ writes an immutable run directory under `runs/`.
 | Strict result, provenance, timing, and integrity contracts | Working |
 | Aligned load assessment with explicit abstention | Working |
 | Operator Evidence Card and costed next experiment | Working |
+| GPU-free preflight and hard-bounded guided assessment | Working |
 | Cohort comparison, SLO gates, Pareto and blocked studies | Working |
 | FP8-KV quality and long-context gates | Working, limited evidence |
 | Automatic production traffic capture | Not built |
@@ -157,7 +184,7 @@ They are evidence for reviewers, not required reading for first use.
 ## Verify the repository
 
 ```bash
-uv run --extra dev pytest -q  # 515 tests, no GPU
+uv run --extra dev pytest -q  # 525 tests, no GPU
 uv build
 ```
 
@@ -165,10 +192,10 @@ The package supports Python 3.10–3.14. Dependencies are locked in `uv.lock`.
 
 ## Near-term direction
 
-The next product milestone is a polished local workflow over operator-owned evidence: capture or load
-a representative metadata trace, run a small registered benchmark, produce an Evidence Card, and
-export a reviewable experiment plan. Production integration comes after this loop is understandable
-and repeatedly useful—not before.
+The next product milestone is a deterministic configuration gate: run an operator-reviewed baseline
+and candidate under identical conditions, evaluate performance/SLO evidence plus an explicitly chosen
+workload-quality gate, and return `PASS`, `FAIL`, or `ABSTAIN`. Production integration comes only
+after this local safety boundary is trustworthy and repeatedly useful.
 
 InferPilot's rule is simple: **measure, bind the evidence, recommend one test, and abstain when the
 claim is not supported.**

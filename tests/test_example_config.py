@@ -8,6 +8,7 @@ from pathlib import Path
 from inferpilot import ExperimentConfig
 
 EXAMPLE = Path(__file__).resolve().parents[1] / "examples" / "example_experiment.json"
+ASSESSMENT = Path(__file__).resolve().parents[1] / "examples" / "assessment_config.json"
 C4_SEQ1 = Path(__file__).resolve().parents[1] / "examples" / "experiment_c4_seq1.json"
 C4_SEQ2 = Path(__file__).resolve().parents[1] / "examples" / "experiment_c4_seq2.json"
 C4_SEQ4 = Path(__file__).resolve().parents[1] / "examples" / "experiment_c4_seq4.json"
@@ -36,6 +37,17 @@ def test_example_config_parses() -> None:
 def test_example_config_roundtrips() -> None:
     cfg = ExperimentConfig.model_validate_json(EXAMPLE.read_text())
     assert ExperimentConfig.model_validate_json(cfg.model_dump_json()) == cfg
+
+
+def test_assessment_example_is_diagnosis_capable_and_operator_scoped() -> None:
+    cfg = ExperimentConfig.model_validate_json(ASSESSMENT.read_text())
+    assert cfg.schema_version == "0.5.0"
+    assert cfg.engine.revision is not None
+    assert cfg.workload.request_rate_qps == 2.0
+    assert cfg.workload.num_requests >= 100
+    assert cfg.workload.warmup_requests >= 1
+    assert cfg.slo is not None
+    assert "illustrative-slo" in cfg.tags
 
 
 def test_unknown_field_is_rejected() -> None:

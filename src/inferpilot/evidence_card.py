@@ -65,8 +65,13 @@ def _derive(
     diagnosis = recommendation.advisory.diagnosis
     candidate, mechanism = _candidate(recommendation)
 
-    if recommendation.advisory.action == "tune" and candidate is not None:
-        status: CardStatus = "experiment_recommended"
+    status: CardStatus
+    if not result.is_baseline_eligible:
+        candidate = None
+        mechanism = "baseline_ineligible"
+        status = "abstain"
+    elif recommendation.advisory.action == "tune" and candidate is not None:
+        status = "experiment_recommended"
     elif recommendation.advisory.action == "adequate":
         status = "keep_current"
     else:

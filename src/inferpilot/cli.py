@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import argparse
+import shlex
 import sys
 from pathlib import Path
 
 from pydantic import ValidationError
 
 from .advisor.capacity_advisory import OperatorEconomics
-from .config import SLO
+from .config import ExperimentConfig, SLO
 from .evidence_card import OptimizationEvidenceCard, build_evidence_card
 from .mechanism import MechanismEvidence
 from .phases import RunnerPhaseTiming
@@ -99,7 +100,7 @@ def _analyze(args: argparse.Namespace) -> int:
         return 2
     try:
         card = _load_card(args)
-    except (OSError, ValueError, ValidationError) as exc:
+    except (OSError, RuntimeError, ValueError, ValidationError) as exc:
         print(f"cannot analyze evidence bundle: {exc}", file=sys.stderr)
         return 2
     _print_summary(card)
@@ -128,6 +129,77 @@ def _demo(args: argparse.Namespace) -> int:
     return 0
 
 
+def _print_preflight(plan) -> None:
+    print("InferPilot assessment preflight\n")
+    for check in plan.checks:
+        marker = {"pass": "PASS", "fail": "FAIL", "unknown": "UNKNOWN"}[check.status]
+        print(f"[{marker:7}] {check.name}: {check.detail}")
+    print(f"\nCommand: {shlex.join(plan.planned_command)}")
+    print(
+        "Hard budget: "
+        f"{plan.budget.max_wall_time_s:g}s wall / "
+        f"{plan.budget.max_gpu_seconds:g} GPU-s / "
+        f"${plan.budget.maximum_cost_usd:.4f} maximum"
+    )
+    print("Execution allowed: " + ("yes" if plan.execution_allowed else "no"))
+
+
+def _assess(args: argparse.Namespace) -> int:
+    from .assessment import build_budget, create_assessment
+
+    try:
+        config = ExperimentConfig.model_validate_json(args.config.read_text())
+        budget = build_budget(
+            max_wall_time_s=args.max_wall_time_s,
+            gpu_cost_per_hour_usd=args.gpu_cost_per_hour,
+            gpu_count=args.gpu_count,
+            max_cost_usd=args.max_cost_usd,
+        )
+        outcome = create_assessment(
+            config,
+            budget,
+            output_dir=args.output_dir,
+            dry_run=args.dry_run,
+            ready_timeout_s=args.ready_timeout,
+            request_timeout_s=args.request_timeout,
+        )
+    except (OSError, RuntimeError, ValueError, ValidationError) as exc:
+        print(f"cannot create assessment: {exc}", file=sys.stderr)
+        return 2
+
+    _print_preflight(outcome.plan)
+    print(f"Assessment artifacts: {outcome.assessment_dir}")
+    if args.dry_run or not outcome.plan.execution_allowed:
+        if args.dry_run and outcome.plan.execution_allowed:
+            print("Dry run passed. Run without --dry-run to execute.")
+            return 0
+        print("Assessment stopped before GPU execution.")
+        return 2
+    assert outcome.result is not None
+    print(f"\nExecution: {outcome.result.status.value}")
+    print(f"Run bundle: {outcome.run_dir}")
+    if outcome.result.status.value != "completed":
+        assert outcome.result.failure is not None
+        print(
+            f"Failure: {outcome.result.failure.error_type}: "
+            f"{outcome.result.failure.message}",
+            file=sys.stderr,
+        )
+        return 1
+    if outcome.card is None:
+        print("No Evidence Card was produced.", file=sys.stderr)
+        return 1
+    print()
+    _print_summary(outcome.card)
+    if outcome.candidate_plan is not None:
+        print("Unverified candidate preconditions:")
+        for criterion in outcome.candidate_plan.acceptance_criteria:
+            if "quality" in criterion or "accuracy" in criterion or "pareto" in criterion:
+                print(f"  - {criterion}")
+        print("Candidate execution: NOT AUTHORIZED; review experiment-plan.json first")
+    return 0
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="inferpilot",
@@ -140,6 +212,20 @@ def _parser() -> argparse.ArgumentParser:
     )
     demo.add_argument("--output", type=Path, help="optionally write the Evidence Card JSON")
     demo.set_defaults(handler=_demo)
+    assess = sub.add_parser(
+        "assess",
+        help="preflight and optionally run one bounded inference assessment",
+    )
+    assess.add_argument("config", type=Path, help="ExperimentConfig JSON")
+    assess.add_argument("--dry-run", action="store_true", help="plan only; never start a server")
+    assess.add_argument("--output-dir", type=Path, default=Path("assessments"))
+    assess.add_argument("--max-wall-time-s", type=float, default=600.0)
+    assess.add_argument("--gpu-cost-per-hour", type=float, required=True)
+    assess.add_argument("--gpu-count", type=int, default=1)
+    assess.add_argument("--max-cost-usd", type=float)
+    assess.add_argument("--ready-timeout", type=float, default=300.0)
+    assess.add_argument("--request-timeout", type=float, default=120.0)
+    assess.set_defaults(handler=_assess)
     analyze = sub.add_parser(
         "analyze",
         help="diagnose one metadata-only run bundle and recommend a bounded experiment",

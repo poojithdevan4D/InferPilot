@@ -1,0 +1,45 @@
+{
+  "schema_version": "0.5.0",
+  "experiment_id": "qwen05b-assessment",
+  "name": "Qwen2.5-0.5B bounded assessment",
+  "description": "Illustrative assessment config. Replace the SLO and GPU price with operator-owned values before treating the result as relevant.",
+  "engine": {
+    "model": "Qwen/Qwen2.5-0.5B-Instruct",
+    "revision": "7ae557604adf67be50417f59c2c2f167def9a775",
+    "dtype": "auto",
+    "max_model_len": 2048,
+    "max_num_seqs": 4,
+    "max_num_batched_tokens": 512,
+    "gpu_memory_utilization": 0.85,
+    "kv_cache_dtype": "auto",
+    "enable_prefix_caching": false,
+    "enable_chunked_prefill": true,
+    "sampler_backend": "pytorch",
+    "generation_config": "vllm",
+    "extra_args": {}
+  },
+  "workload": {
+    "name": "illustrative-open-loop-qps2",
+    "num_requests": 128,
+    "warmup_requests": 4,
+    "prompt_tokens": 128,
+    "output_tokens": 32,
+    "request_rate_qps": 2.0,
+    "arrival_pattern": "poisson-v1",
+    "burst_size": null,
+    "max_concurrency": null,
+    "temperature": 0.0,
+    "ignore_eos": true,
+    "seed": 0,
+    "prompt_seed": 1001,
+    "arrival_seed": 30
+  },
+  "slo": {
+    "ttft_p95_ms": 500.0,
+    "tpot_p95_ms": 40.0,
+    "e2e_p95_ms": null,
+    "min_throughput_tokens_per_s": null
+  },
+  "seed": 0,
+  "tags": ["assessment-example", "illustrative-slo"]
+}

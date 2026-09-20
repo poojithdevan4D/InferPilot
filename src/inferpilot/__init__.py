@@ -32,6 +32,14 @@ from .mechanism import (
     evaluate_mechanism_canary,
 )
 from .evidence_card import OptimizationEvidenceCard, build_evidence_card
+from .assessment import (
+    AssessmentBudget,
+    AssessmentPlan,
+    CandidateExperimentPlan,
+    build_assessment_plan,
+    build_budget,
+    build_candidate_plan,
+)
 from .results import AggregateMetrics, ExperimentResult
 from .deployment import (
     DeploymentOption,
@@ -115,6 +123,12 @@ __all__ = [
     "evaluate_mechanism_canary",
     "OptimizationEvidenceCard",
     "build_evidence_card",
+    "AssessmentBudget",
+    "AssessmentPlan",
+    "CandidateExperimentPlan",
+    "build_assessment_plan",
+    "build_budget",
+    "build_candidate_plan",
     "AggregateMetrics",
     "ExperimentResult",
     "ExperimentStatus",

@@ -11,7 +11,9 @@ from __future__ import annotations
 import asyncio
 import math
 import platform
+import signal
 import socket
+import threading
 import traceback as _tb
 from datetime import datetime, timezone
 from importlib import metadata as _md
@@ -66,6 +68,7 @@ from .mechanism_evidence import build_mechanism_evidence
 from .workload_gen import generate_workload
 
 CommandBuilder = Callable[[int], list[str]]
+RunDirectoryCallback = Callable[[Path], None]
 
 _OOM_SIGNATURES = ("out of memory", "outofmemory", "cuda error: out of memory")
 
@@ -76,6 +79,10 @@ class _WarmupFailed(Exception):
     def __init__(self, measurements: list[RequestMeasurement]) -> None:
         super().__init__("warm-up request(s) failed")
         self.measurements = measurements
+
+
+class _ExperimentDeadlineExceeded(Exception):
+    """Internal signal used to unwind through the runner's cleanup path."""
 
 
 def _pkg_version(name: str) -> Optional[str]:
@@ -180,6 +187,8 @@ def run_experiment(
     terminate_timeout_s: float = 15.0,
     metric_requirements: Optional[Sequence[MetricRequirement]] = None,
     require_metric_capabilities: bool = False,
+    max_wall_time_s: Optional[float] = None,
+    on_run_dir: Optional[RunDirectoryCallback] = None,
 ) -> ExperimentResult:
     """Run one experiment end-to-end and persist an immutable result artifact.
 
@@ -193,6 +202,15 @@ def run_experiment(
         raise ValueError(
             "required metric capabilities need explicit metric requirements"
         )
+    if max_wall_time_s is not None:
+        if max_wall_time_s <= 0 or not math.isfinite(max_wall_time_s):
+            raise ValueError("max_wall_time_s must be finite and positive")
+        if threading.current_thread() is not threading.main_thread():
+            raise ValueError("max_wall_time_s requires the main thread")
+        if not hasattr(signal, "setitimer"):
+            raise ValueError("max_wall_time_s requires a POSIX interval timer")
+        if signal.getitimer(signal.ITIMER_REAL) != (0.0, 0.0):
+            raise ValueError("max_wall_time_s refuses to replace an active process timer")
     mechanism_requested = bool(
         metric_requirements
         and any(
@@ -208,6 +226,8 @@ def run_experiment(
     started_at = _now()
 
     run_dir: Path = create_run_dir(output_dir, config.experiment_id)
+    if on_run_dir is not None:
+        on_run_dir(run_dir)
     stdout_path, stderr_path = server_log_paths(run_dir)
 
     port = find_free_port(host)
@@ -227,11 +247,20 @@ def run_experiment(
 
     result: Optional[ExperimentResult] = None
     timer = PhaseTimer()
+    previous_alarm_handler = None
     # Set once the measured window completes; stays set even if a later
     # aggregation/finalization step fails, so phase timing keeps the real
     # measured duration on FAILED finalization paths.
     measured_duration_s: Optional[float] = None
     try:
+        if max_wall_time_s is not None:
+
+            def _deadline_handler(_signum, _frame):
+                raise _ExperimentDeadlineExceeded
+
+            previous_alarm_handler = signal.getsignal(signal.SIGALRM)
+            signal.signal(signal.SIGALRM, _deadline_handler)
+            signal.setitimer(signal.ITIMER_REAL, max_wall_time_s)
         timer.launch()
         server.start()
 
@@ -536,6 +565,15 @@ def run_experiment(
                 )
                 timer.mark("finalize_end")
 
+    except _ExperimentDeadlineExceeded:
+        result = _failure_result(
+            config,
+            environment,
+            ExperimentStatus.TIMEOUT,
+            "ExperimentDeadlineExceeded",
+            f"experiment exceeded the hard {max_wall_time_s:g}s wall-time budget",
+            started_at,
+        )
     except KeyboardInterrupt:
         if result is None:
             result = _failure_result(
@@ -559,6 +597,10 @@ def run_experiment(
                 traceback=_tb.format_exc(),
             )
     finally:
+        if max_wall_time_s is not None:
+            signal.setitimer(signal.ITIMER_REAL, 0)
+            assert previous_alarm_handler is not None
+            signal.signal(signal.SIGALRM, previous_alarm_handler)
         # stop() records the teardown boundary; classify errors before vs after it
         # so intentional-teardown noise is not confused with startup/measurement
         # failures. Logs are classified, never suppressed.

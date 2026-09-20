@@ -54,6 +54,20 @@ def test_missing_aligned_evidence_abstains():
     assert card.candidate_engine_overrides is None
 
 
+def test_ineligible_baseline_can_never_produce_an_experiment_candidate():
+    result = _with_evidence(
+        make_result(saturating=True, kv_peak=1.0, preemptions=2)
+    )
+    result = result.model_copy(
+        update={"effective_config": result.effective_config.model_copy(update={"verified": False})}
+    )
+    card = build_evidence_card(result, SLO_, ECON)
+    assert card.recommendation.advisory.action == "tune"
+    assert card.status == "abstain"
+    assert card.candidate_engine_overrides is None
+    assert card.mechanism == "baseline_ineligible"
+
+
 def test_card_roundtrip_and_derived_tampering_are_rejected():
     card = build_evidence_card(_with_evidence(make_result()), SLO_, ECON)
     assert OptimizationEvidenceCard.model_validate_json(card.model_dump_json()) == card

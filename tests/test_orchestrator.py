@@ -7,6 +7,7 @@ immutable artifact. No GPU, model, or vLLM required.
 from __future__ import annotations
 
 import json
+import signal
 import sys
 from pathlib import Path
 
@@ -98,6 +99,40 @@ def test_completed_run_produces_immutable_result(tmp_path) -> None:
     # lifecycle classification written; fake server emits no ERROR lines
     lifecycle = json.loads((run_dirs[0] / "lifecycle.json").read_text())
     assert lifecycle["pre_teardown"] == []
+
+
+def test_run_directory_callback_reports_exact_bundle(tmp_path) -> None:
+    observed = []
+    result = run_experiment(
+        _config(num_requests=1, warmup=0),
+        str(tmp_path),
+        command_builder=_builder("normal", 8),
+        ready_timeout_s=15.0,
+        on_run_dir=observed.append,
+    )
+    assert result.status is ExperimentStatus.COMPLETED
+    assert observed == [next(tmp_path.iterdir())]
+    assert (observed[0] / RESULT_FILENAME).exists()
+
+
+def test_hard_wall_time_budget_times_out_and_cleans_up(tmp_path) -> None:
+    previous_handler = signal.getsignal(signal.SIGALRM)
+    result = run_experiment(
+        _config(num_requests=2, warmup=0),
+        str(tmp_path),
+        command_builder=_builder("normal", 8, response_delay=2.0),
+        ready_timeout_s=15.0,
+        max_wall_time_s=0.5,
+    )
+    assert result.status is ExperimentStatus.TIMEOUT
+    assert result.failure is not None
+    assert result.failure.error_type == "ExperimentDeadlineExceeded"
+    run_dir = next(tmp_path.iterdir())
+    assert (run_dir / RESULT_FILENAME).exists()
+    assert (run_dir / "phases.json").exists()
+    assert json.loads((run_dir / "lifecycle.json").read_text())["teardown_started"]
+    assert signal.getitimer(signal.ITIMER_REAL) == (0.0, 0.0)
+    assert signal.getsignal(signal.SIGALRM) == previous_handler
 
 
 def test_config_fidelity_mismatch_fails_before_measurement(tmp_path) -> None:
