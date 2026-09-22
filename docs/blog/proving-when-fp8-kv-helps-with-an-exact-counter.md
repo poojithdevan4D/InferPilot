@@ -68,6 +68,13 @@ an exact counter (now proposed upstream) as the discriminator, graded against a 
 model family, one GPU, and a verdict that says "not yet." The KL quality preflight actually *failed*
 (real distributional shift), so I don't call fp8 KV "lossless" either.
 
+**And it doesn't cleanly generalize.** A preregistered 7B held-out study came back `INCONCLUSIVE`:
+fp8 still gave +33.6% throughput on the pressured workload and ~0% on the unpressured one (clean
+discrimination), but it did **not** drive recomputed tokens to zero — at 7B on one A10G the KV is so
+pressured that halving it doesn't clear preemption, so the win comes from fitting more concurrent KV,
+not from eliminating recompute. The 3B mechanism is real; it just isn't the same story at 7B. That's
+the kind of thing the tool is built to surface instead of hide.
+
 That's the whole point of InferPilot: it diagnoses only when the evidence supports it, and abstains —
 loudly — when it doesn't. If you run vLLM and want to know whether a config change will actually help
 *before* you ship it, that's the tool. Traces and critique welcome.
