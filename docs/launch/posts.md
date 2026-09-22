@@ -1,60 +1,59 @@
 # Ready-to-post launch content
 
-Links: repo https://github.com/poojithdevan4D/InferPilot · vLLM PR https://github.com/vllm-project/vllm/pull/57698 · blog `docs/blog/proving-when-fp8-kv-helps-with-an-exact-counter.md`
+Links: repo https://github.com/poojithdevan4D/InferPilot · vLLM PR (open, under review) https://github.com/vllm-project/vllm/pull/57698 · blog `docs/blog/proving-when-fp8-kv-helps-with-an-exact-counter.md`
+Images: `docs/launch/fp8-recompute-result.png` (primary chart) · PR screenshot (secondary).
+Honesty rule: the PR is OPEN / under review — say "open PR to vLLM," never "merged" or "I contributed to vLLM."
 
 ---
 
-## LinkedIn (post as-is)
+## LinkedIn (post as-is · attach the chart)
 
-Everyone sells fp8 KV cache as a free inference speedup. It isn't free, and it isn't always a speedup — so I built the thing that tells you *which*, and *why*, with evidence you can check.
+Everyone sells fp8 KV cache as a free vLLM speedup. It's not free — and not always faster. So I built the thing that proves *when* it helps, and *why*, with evidence you can check.
 
-The short version:
-• fp8 KV cache helps only when your vLLM server is preempting and recomputing tokens (pure wasted work). When it's compute-bound, fp8 does nothing — and GPU utilization can't tell the two apart (both sit near 100%). The real discriminator is recomputed tokens.
-• vLLM didn't expose an exact count of those, so the claim wasn't checkable. I added the counter to vLLM's scheduler — it's now an open PR to vLLM core (#57698).
-• Measured on an A10G: recomputed tokens went to zero under fp8 in every paired cell, +30.8% geomean throughput, latency down across the board. Total GPU cost: $0.81.
+The finding: fp8 only helps when your server is preempting and **recomputing tokens** — pure wasted work. Compute-bound? It does nothing. And GPU utilization can't tell the difference (both sit at ~100%). The real signal is recomputed tokens.
 
-The part I'm most proud of: I still graded it as NOT a pass. My preregistered rule required conditions one cell didn't meet, so the verdict is "not yet" — I didn't move the goalposts to the result I wanted. A second study self-invalidated on a timing rule and I threw it out.
+vLLM didn't expose that number. So I added the exact counter to vLLM's scheduler — it's now an **open PR to vLLM core** (#57698, under review).
 
-That discipline is the product. InferPilot diagnoses vLLM configs only when the evidence supports it and abstains loudly when it doesn't.
+Measured on an A10G: recomputed tokens → **0** under fp8, **+30% throughput**, latency down, 100% success. Total GPU cost: **$0.81**.
 
-If you run vLLM at load and want to know whether a config change will actually help before you ship it — I'd love to test it on a (sanitized) trace of yours.
+The part I'm proudest of: I graded it as **NOT a pass.** My preregistered rule required conditions one cell missed, so the verdict is "not yet" — I didn't move the goalposts to the result I wanted.
 
-Repo + write-up in comments.
+That discipline is the product. InferPilot diagnoses vLLM configs only when the evidence supports it — and says "I don't know" out loud when it doesn't.
 
-(first comment: 🔗 https://github.com/poojithdevan4D/InferPilot  and vLLM PR https://github.com/vllm-project/vllm/pull/57698)
+If you run vLLM at load, I'd love to test it on a sanitized trace of yours. 👇
 
----
-
-## vLLM GitHub Discussions — Show and tell (post as-is)
-
-**Title:** Exact recomputed-token counter + a reproducible study of when fp8 KV cache actually helps
-
-I've been trying to pin down *when* fp8 KV cache helps on vLLM, mechanistically rather than by vibes.
-
-Hypothesis: fp8 helps only when the server is KV-bound enough to preempt and recompute tokens; the discriminator is recomputed tokens, not GPU util (both ~100%). vLLM didn't expose an exact recomputed-token count, so I added one to the scheduler and exposed it via the existing Prometheus path — PR #57698. A canary confirmed it: 23,324 recomputed-token executions under forced pressure, 0 in a low-pressure control.
-
-Paired A10G study (Qwen2.5-3B, 0.29.0, pinned image): recomputed tokens → 0 under fp8 in every cell, +30.8% geomean throughput, latency down, 100% success, $0.81 total. I graded it NOT_TARGET_REGIME against a preregistered rule (one cell was only near_capacity), so it's directional, not a validated law — no cross-model or quality-safety claims.
-
-Full evidence, the honest negative, and the tooling: https://github.com/poojithdevan4D/InferPilot
-
-Feedback on the metric's semantics (frontier definition, prefix-cache exclusion) very welcome — that's partly why the PR is up.
+🔗 https://github.com/poojithdevan4D/InferPilot
 
 ---
 
-## X / Twitter (thread, post as-is)
+## vLLM GitHub Discussions — Show and tell (post as-is · embed the chart)
 
-1/ Everyone sells fp8 KV cache as a free vLLM speedup. It's not free and not always faster. I built the tool that tells you which, and why, with checkable evidence. 🧵
+**Title:** An exact recomputed-token counter + a reproducible study of when fp8 KV cache actually helps
 
-2/ Hypothesis: fp8 helps ONLY when the server preempts and recomputes tokens (wasted work). Compute-bound? fp8 does nothing. And GPU util can't tell them apart — both ~100%. The real signal is recomputed tokens.
+I wanted to pin down *when* fp8 KV cache helps on vLLM — mechanistically, not by vibes.
 
-3/ Problem: vLLM didn't expose an exact recomputed-token count. So the claim wasn't checkable. I added the counter to vLLM's scheduler. It's now an open PR to vLLM core: github.com/vllm-project/vllm/pull/57698
+Hypothesis: it helps only when the server is KV-bound enough to preempt and recompute tokens. The discriminator is recomputed tokens, not GPU util (both ~100%). vLLM didn't expose an exact count, so I added one to the scheduler via the existing Prometheus path — **open PR #57698** (feedback on the metric semantics very welcome; that's partly why it's up).
 
-4/ Canary check: forced KV pressure → 23,324 recomputed-token executions. Low-pressure control → 0. The counter means what it says.
+Canary: 23,324 recomputed-token executions under forced pressure, **0** in a low-pressure control.
 
-5/ Result (A10G, paired fp8 vs bf16): recomputed tokens → 0 under fp8 every cell. +30.8% geomean throughput. Latency down across the board. 100% success. Total GPU cost: $0.81.
+Paired A10G study (Qwen2.5-3B, 0.29.0, pinned image): recomputed tokens → **0** under fp8 in every cell, **+30.8% geomean throughput**, latency down, 100% success, **$0.81** total. I graded it `NOT_TARGET_REGIME` against a preregistered rule — directional, not a validated law. No cross-model or quality-safety claims.
 
-6/ The best part: I graded it NOT a pass. My preregistered rule needed conditions one cell missed, so the verdict is "not yet." Didn't move the goalposts. A 2nd study self-invalidated on a timing rule — threw it out.
+Full evidence + the honest negative: https://github.com/poojithdevan4D/InferPilot
 
-7/ That discipline is the product. InferPilot diagnoses vLLM configs only when evidence supports it, abstains loudly otherwise. Not a law, not a quality claim — one model family, honest limits.
+---
 
-8/ Repo + full write-up + the honest negative: github.com/poojithdevan4D/InferPilot — if you run vLLM at load, I'd love to test it on a sanitized trace of yours. @vllm_project
+## X / Twitter (thread · attach chart to tweet 4)
+
+1/ Everyone sells fp8 KV cache as a free vLLM speedup. It's not free, and not always faster. I built the tool that proves *when* it helps — and *why*. 🧵
+
+2/ fp8 only helps when your server preempts and **recomputes tokens** (wasted work). Compute-bound? It does nothing. GPU util can't tell them apart — both ~100%. The real signal is recomputed tokens.
+
+3/ vLLM didn't expose that number. So I added the exact counter to its scheduler. It's now an **open PR to vLLM core** (under review): github.com/vllm-project/vllm/pull/57698
+
+4/ Result (A10G, paired): recomputed tokens → **0** under fp8, **+30% throughput**, latency down, 100% success. Total GPU cost: **$0.81**.
+
+5/ Best part: I graded it as NOT a pass. My preregistered rule needed conditions one cell missed — so the verdict is "not yet." Didn't move the goalposts.
+
+6/ That discipline is the product. InferPilot diagnoses vLLM configs only when evidence supports it, and abstains loudly when it doesn't. Honest limits, one model family.
+
+7/ Repo + full write-up + the honest negative: github.com/poojithdevan4D/InferPilot — run vLLM at load? I'd love a sanitized trace. @vllm_project
