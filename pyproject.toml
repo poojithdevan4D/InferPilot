@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "inferpilot"
 version = "0.1.0"
-description = "The vLLM doctor — diagnose your inference server and know if a config change (like fp8 KV cache) will actually help."
+description = "Evidence-first vLLM screening and controlled capacity analysis."
 readme = "README.md"
 requires-python = ">=3.10,<3.15"
 license = { text = "MIT" }

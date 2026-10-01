@@ -421,7 +421,7 @@ def _inspect(args: argparse.Namespace) -> int:
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="inferpilot",
-        description="The vLLM doctor — diagnose your inference server and know if a config change will help.",
+        description="The vLLM doctor — screen live signals and choose the next controlled experiment.",
     )
     sub = parser.add_subparsers(dest="command", required=False)
     demo = sub.add_parser(
@@ -530,7 +530,7 @@ def _parser() -> argparse.ArgumentParser:
 
 _INTRO = """InferPilot — the vLLM doctor
 
-Diagnose a running vLLM and know if a config change will actually help.
+Screen a running vLLM and choose the next controlled experiment.
 
   Diagnose a live server (no benchmark run):
     inferpilot doctor --url http://localhost:8000

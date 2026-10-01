@@ -1,11 +1,10 @@
 # InferPilot
 
-**The vLLM doctor — know if a config change will actually help, before you ship it.**
+**The vLLM doctor — screen live signals, then verify changes with controlled evidence.**
 
-Point InferPilot at a running vLLM: it reads the live Prometheus `/metrics` and tells you your
-real bottleneck — and whether a change like fp8 KV cache will help, or do nothing. It diagnoses
-from evidence, not from GPU utilization, and says so when it can't tell. Open source, MIT, no
-telemetry.
+Point InferPilot at a running vLLM: it reads the live Prometheus `/metrics` and screens for KV
+pressure, preemption, and queueing. It tells you whether a change like fp8 KV cache is worth a
+controlled test, and abstains when the signals cannot support one. Open source, MIT, no telemetry.
 
 **▶ Try the interactive demo (no install):** https://poojithdevan4d.github.io/InferPilot/ — move the
 signals and watch the verdict change.
@@ -22,8 +21,9 @@ uvx inferpilot doctor --url http://localhost:8000
 
 ```text
 InferPilot · the vLLM doctor
+Live screening · confirm changes with a controlled benchmark
 ──────────────────────────────────────────────
-⚡ KV-BOUND & PREEMPTING
+⚡ KV PRESSURE + PREEMPTION SIGNAL
    kv_cache_dtype=fp8 → worth testing
 
    KV cache    ████████████████████  98%
@@ -31,27 +31,29 @@ InferPilot · the vLLM doctor
    running     12 requests
    preemptions rising (+9)
 
-→ The KV cache is full and the scheduler is preempting (wasted recompute). fp8 KV is
-  the mechanistic lever — run a controlled canary and confirm before you ship it.
+→ The KV cache is full and the scheduler is preempting. This screening signal makes
+  fp8 KV worth testing in a controlled canary; it does not predict the size or cause
+  of any gain.
 ```
 
 Or the honest verdict most tools won't give you:
 
 ```text
-✗ COMPUTE / OTHER-BOUND
-   fp8 KV cache → won't help here
+○ NO KV CAPACITY SIGNAL
+   prioritize compute or scaling tests
 
    KV cache    ███████████░░░░░░░░░  55%
    queue       7 waiting  ← backing up
    preemptions none
 
-→ Requests are queuing while the KV cache has headroom — the bottleneck is compute or
-  something other than KV. fp8 KV will not help; look at scaling instead.
+→ Requests are queuing while the KV cache has headroom. This snapshot does not support
+  KV capacity as the limiting signal, so prioritize a controlled scaling or compute-side test.
 ```
 
-It scrapes `/metrics` twice itself and tells you which regime you are in —
-`KV-bound & preempting` (fp8 worth testing), `compute/other-bound` (fp8 won't help),
-`near-capacity`, or `healthy` — and names the missing metric when it can't decide.
+It scrapes `/metrics` twice and returns a screening state — `KV pressure + preemption`
+(fp8 worth testing), `no KV capacity signal`, `near-capacity`, or `healthy` — and names the
+missing metric when it cannot decide. These states choose the next experiment; they are not
+validated bottleneck labels or performance predictions.
 `--json` for scripts, `--plain` for no color.
 
 Leave it running to watch for trouble — it prints a line per check and flags the moment
@@ -63,7 +65,7 @@ inferpilot doctor --url http://localhost:8000 --watch
 
 ```text
 18:00:05  … warming up             KV  98%  q7
-18:00:06  ⚡ kv-bound + preempting  KV  98%  q7  preempt +9   ⚠ changed: warming up → preempting
+18:00:06  ⚡ KV pressure + preemption  KV  98%  q7  preempt +9   ⚠ changed: warming up → preempting
 18:00:16  ✓ healthy                KV  41%  q0  preempt 0     ⚠ changed: preempting → healthy
 ```
 
@@ -71,7 +73,8 @@ inferpilot doctor --url http://localhost:8000 --watch
 `uv tool install inferpilot` or `pipx install inferpilot` (or plain `pip install inferpilot`).
 
 Once you have a rate sweep, `inferpilot capacity` turns it into an SLO-capacity ceiling,
-a `$/token`, and an action plan to a target QPS.
+a `$/token`, and an action plan to a target QPS. It fails closed unless every run has the
+same resolved configuration, environment, workload, and seeds; only offered QPS may differ.
 
 ## Go deeper: the full decision path (no GPU)
 

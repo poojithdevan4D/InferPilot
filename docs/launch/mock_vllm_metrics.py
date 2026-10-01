@@ -5,8 +5,8 @@ without a GPU or a real vLLM server.
 In 'preempting' mode the preemption counter rises on every scrape, so
 `inferpilot doctor --url http://localhost:8765` sees a genuine preemption *rate* across
 its two scrapes and reaches the KV-bound verdict. In 'compute' mode the queue builds
-while the KV cache has headroom and preemptions stay flat, so it reaches the honest
-"fp8 won't help" verdict.
+while the KV cache has headroom and preemptions stay flat, so it reports that the
+snapshot has no KV capacity signal.
 
     python docs/launch/mock_vllm_metrics.py --mode preempting --port 8765
     inferpilot doctor --url http://localhost:8765 --interval 2

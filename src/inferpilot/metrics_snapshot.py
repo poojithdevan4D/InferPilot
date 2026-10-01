@@ -9,12 +9,11 @@ snapshots of it, 30-60s apart, carry the signals that actually separate the regi
                                           two snapshots is the preemption *rate*)?
   * ``vllm:num_requests_waiting``      — is a queue building while KV has headroom?
 
-From those this module gives the same honest verdict the rest of InferPilot does —
-"KV-bound and preempting, fp8 is worth a canary" vs "a queue is building but KV has
-headroom, so this is compute/other-bound and fp8 won't help" vs "capture a second
-snapshot so I can measure the preemption rate" — and names exactly which metric to
-enable when one is missing. It is a *screening* read, not a measured capacity claim:
-it tells an engineer whether a controlled experiment is even worth running.
+From those this module gives a calibrated screening result: "KV pressure and
+preemption, so fp8 is worth a canary", "a queue is building while KV has headroom,
+so prioritize compute or scaling tests", or "capture a fresh interval". It names
+the missing metric when it cannot decide. It does not claim a validated bottleneck
+or predict the effect of a change.
 
 The reading recomputes its verdict from the embedded snapshots on load.
 """
@@ -70,7 +69,7 @@ class VLLMMetricsSnapshot(SchemaModel):
 Verdict = Literal[
     "kv_capacity_bound_preempting",  # KV full AND preempting -> fp8 KV is worth a controlled canary
     "near_capacity",                 # KV full but not preempting in this window
-    "not_kv_bound",                  # queue building while KV has headroom -> compute/other; fp8 won't help
+    "not_kv_bound",                  # queueing with KV headroom -> no KV-capacity signal in this snapshot
     "healthy_or_underutilized",      # KV headroom and nothing queuing
     "need_second_snapshot",          # KV full but only one snapshot -> can't measure the preemption rate
     "insufficient_metrics",          # a signal needed to decide is missing
@@ -83,6 +82,10 @@ def _preemption_rising(before: VLLMMetricsSnapshot, after: Optional[VLLMMetricsS
     for field in ("num_preemptions_total", "recomputed_token_executions_total"):
         b, a = getattr(before, field), getattr(after, field)
         if b is not None and a is not None:
+            # A counter decrease means the server/process or metric series reset.
+            # Treat the interval as unknown instead of falsely calling it flat.
+            if a < b:
+                return None
             return (a - b) > 0
     return None
 
@@ -105,8 +108,9 @@ def _derive(
         if preempting is True:
             return "kv_capacity_bound_preempting", "kv_cache_dtype=fp8", [
                 f"kv_usage_{kv:.2f}>=full", "preemptions_rising_between_snapshots",
-            ], ("The KV cache is full and the scheduler is preempting (wasted recompute). "
-                "fp8 KV is the mechanistic lever — run a controlled canary and confirm with compare_lever.")
+            ], ("The KV cache is full and the scheduler is preempting. This screening signal makes "
+                "fp8 KV worth testing in a controlled canary; it does not predict the size or cause "
+                "of any gain.")
         if preempting is False:
             return "near_capacity", "none", [
                 f"kv_usage_{kv:.2f}>=full", "no_preemptions_in_this_window",
@@ -126,8 +130,9 @@ def _derive(
     if waiting > 0:
         return "not_kv_bound", "none", [
             f"kv_usage_{kv:.2f}_below_full", f"requests_waiting_{waiting:g}",
-        ], ("Requests are queuing while the KV cache has headroom — the bottleneck is compute or "
-            "something other than KV. fp8 KV will not help; look at scaling or compute-side levers.")
+        ], ("Requests are queuing while the KV cache has headroom. This snapshot does not support "
+            "KV capacity as the limiting signal, so prioritize a controlled scaling or compute-side "
+            "test before spending on an fp8 KV sweep.")
     return "healthy_or_underutilized", "none", [
         f"kv_usage_{kv:.2f}_below_full", "no_requests_waiting",
     ], ("KV has headroom and nothing is queuing. No KV lever is warranted; if latency matters, that "

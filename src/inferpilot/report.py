@@ -132,9 +132,9 @@ def _bar(frac: float, width: int = 20) -> str:
 
 # verdict -> (glyph+headline, headline color, sub-line fallback, sub color)
 _READING = {
-    "kv_capacity_bound_preempting": ("⚡ KV-BOUND & PREEMPTING", "yellow", None, "green"),
+    "kv_capacity_bound_preempting": ("⚡ KV PRESSURE + PREEMPTION SIGNAL", "yellow", None, "green"),
     "near_capacity": ("◐ NEAR CAPACITY", "yellow", "fp8 is pre-emptive insurance, not a measured win", "grey"),
-    "not_kv_bound": ("✗ COMPUTE / OTHER-BOUND", "red", "fp8 KV cache → won't help here", "grey"),
+    "not_kv_bound": ("○ NO KV CAPACITY SIGNAL", "cyan", "prioritize compute or scaling tests", "grey"),
     "healthy_or_underutilized": ("✓ HEALTHY / UNDERUTILIZED", "green", "no KV lever is warranted", "grey"),
     "need_second_snapshot": ("… NEED A SECOND SNAPSHOT", "cyan", "capture /metrics again in 30–60s", "grey"),
     "insufficient_metrics": ("… INSUFFICIENT METRICS", "cyan", "a needed metric is missing", "grey"),
@@ -150,6 +150,7 @@ def render_live_reading(reading: LiveReading, *, color: bool = False) -> str:
 
     out = [
         _paint("InferPilot · the vLLM doctor", "bold", color=color),
+        _paint("Live screening · confirm changes with a controlled benchmark", "dim", color=color),
         _paint("─" * 46, "grey", color=color),
         _paint(headline, "bold", hcolor, color=color),
     ]
@@ -183,9 +184,9 @@ def render_live_reading(reading: LiveReading, *, color: bool = False) -> str:
 
 
 _SHORT = {
-    "kv_capacity_bound_preempting": ("⚡ kv-bound + preempting", "yellow"),
+    "kv_capacity_bound_preempting": ("⚡ KV pressure signal", "yellow"),
     "near_capacity": ("◐ near capacity", "yellow"),
-    "not_kv_bound": ("✗ compute/other-bound", "red"),
+    "not_kv_bound": ("○ no KV capacity signal", "cyan"),
     "healthy_or_underutilized": ("✓ healthy", "green"),
     "need_second_snapshot": ("… warming up", "cyan"),
     "insufficient_metrics": ("… missing metrics", "cyan"),

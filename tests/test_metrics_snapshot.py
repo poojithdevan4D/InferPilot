@@ -51,7 +51,15 @@ def test_kv_full_not_preempting_is_near_capacity() -> None:
 def test_queue_with_kv_headroom_is_not_kv_bound() -> None:
     r = inspect_metrics(_metrics(kv=0.55, waiting=7, preemptions=0))
     assert r.verdict == "not_kv_bound"
-    assert "fp8 KV will not help" in r.next_step
+    assert "does not support KV capacity" in r.next_step
+
+
+def test_counter_reset_cannot_be_mistaken_for_no_preemption() -> None:
+    before = _metrics(kv=0.98, waiting=2, preemptions=10)
+    after = _metrics(kv=0.98, waiting=2, preemptions=1)
+    r = inspect_metrics(before, after)
+    assert r.verdict == "need_second_snapshot"
+    assert "rate_unknown" in r.reasons[-1]
 
 
 def test_headroom_and_no_queue_is_healthy() -> None:
@@ -86,7 +94,7 @@ def test_cli_inspect_prints_screening(tmp_path, capsys) -> None:
     rc = main(["inspect", str(b), str(a)])
     out = capsys.readouterr().out
     assert rc == 0
-    assert "KV-BOUND & PREEMPTING" in out
+    assert "KV PRESSURE + PREEMPTION SIGNAL" in out
     assert "kv_cache_dtype=fp8" in out
 
 
@@ -101,7 +109,7 @@ def test_render_live_line_is_compact() -> None:
     r = inspect_metrics(_metrics(kv=0.98, waiting=6, preemptions=10),
                         _metrics(kv=0.98, waiting=6, preemptions=19))
     line = render_live_line(r, stamp="14:32:07")
-    assert "14:32:07" in line and "kv-bound" in line and "KV" in line and "q6" in line
+    assert "14:32:07" in line and "KV pressure" in line and "KV" in line and "q6" in line
     assert "preempt +9" in line
     assert "\n" not in line  # one line
 
@@ -112,7 +120,7 @@ def test_cli_doctor_alias_works(tmp_path, capsys) -> None:
     rc = main(["doctor", str(b), str(a)])
     out = capsys.readouterr().out
     assert rc == 0
-    assert "KV-BOUND & PREEMPTING" in out
+    assert "KV PRESSURE + PREEMPTION SIGNAL" in out
 
 
 def test_cli_inspect_json(tmp_path, capsys) -> None:

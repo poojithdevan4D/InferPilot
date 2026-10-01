@@ -35,7 +35,7 @@ In three terminals (or background the first two):
 # 1. a server that is preempting  -> "fp8 worth testing"
 python docs/launch/mock_vllm_metrics.py --mode preempting --port 8765 &
 
-# 2. a server that is compute-bound -> the honest "fp8 won't help"
+# 2. a server with queueing and KV headroom -> prioritize compute or scaling tests
 python docs/launch/mock_vllm_metrics.py --mode compute --port 8766 &
 
 # 3. record the demo
@@ -55,8 +55,8 @@ Keep it under ~5 MB. If it's heavy: lower `--font-size`, or trim trailing idle i
 ## Polish before recording
 - Use a clean, neutral prompt — no home paths, no internal branch names, no company name.
 - A dark terminal theme reads best in README cards.
-- The two-verdict sequence is deliberate: the **second** (honest "won't help") is the
-  share-bait — "finally, a tool that admits it."
+- The two-result sequence is deliberate: the second shows that InferPilot can steer
+  an operator away from an unsupported KV experiment.
 
 ## Embed in the README
 

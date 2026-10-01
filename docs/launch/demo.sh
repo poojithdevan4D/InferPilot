@@ -27,7 +27,7 @@ inferpilot doctor --url http://localhost:8765 --interval 2
 sleep 3.0
 printf '\n\n'
 
-# 2) The honest verdict most tools won't give you: fp8 won't help here.
+# 2) Queueing with KV headroom: prioritize compute or scaling tests.
 type_cmd "inferpilot doctor --url http://localhost:8766 --interval 2"
 sleep 0.3
 inferpilot doctor --url http://localhost:8766 --interval 2

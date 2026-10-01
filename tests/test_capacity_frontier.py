@@ -12,8 +12,10 @@ from inferpilot.capacity_frontier import (
     CapacityFrontier,
     CapacityPoint,
     estimate_frontier,
+    frontier_from_results,
 )
 from inferpilot.config import SLO
+from test_load_state import make_result
 
 
 def _pt(offered, *, achieved=None, tokens_per_s=800.0, overloaded=False, margin=None):
@@ -101,3 +103,46 @@ def test_frontier_roundtrips_and_rejects_tampering() -> None:
 def test_duplicate_offered_rates_rejected() -> None:
     with pytest.raises(ValueError, match="distinct offered rates"):
         estimate_frontier([_pt(4.0, margin=0.2), _pt(4.0, margin=-0.1)], SLO_TTFT)
+
+
+def _with_rate(result, rate: float):
+    workload = result.config.workload.model_copy(update={"request_rate_qps": rate})
+    config = result.config.model_copy(update={"workload": workload})
+    return result.model_copy(update={"config": config})
+
+
+def test_rate_sweep_accepts_only_offered_rate_difference() -> None:
+    first = make_result(rate=4.0)
+    second = _with_rate(first, 6.0)
+    frontier = frontier_from_results([first, second], SLO_TTFT)
+    assert len(frontier.points) == 2
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda r: r.model_copy(update={
+            "config": r.config.model_copy(update={
+                "engine": r.config.engine.model_copy(update={"max_num_batched_tokens": 1024})
+            })
+        }),
+        lambda r: r.model_copy(update={
+            "config": r.config.model_copy(update={
+                "workload": r.config.workload.model_copy(update={"seed": 99})
+            })
+        }),
+        lambda r: r.model_copy(update={
+            "effective_config": r.effective_config.model_copy(update={"max_num_batched_tokens": 1024})
+        }),
+        lambda r: r.model_copy(update={
+            "environment": r.environment.model_copy(update={
+                "hardware": r.environment.hardware.model_copy(update={"gpu_name": "another-gpu"})
+            })
+        }),
+    ],
+)
+def test_rate_sweep_rejects_hidden_configuration_differences(mutate) -> None:
+    first = make_result(rate=4.0)
+    second = mutate(_with_rate(first, 6.0))
+    with pytest.raises(ValueError, match="only request_rate_qps may vary"):
+        frontier_from_results([first, second], SLO_TTFT)

@@ -3,7 +3,12 @@
 from .blocked import evaluate_blocked_study
 from .compare import build_cohort, compare_cohorts
 from .decision import evaluate_study
-from .fingerprint import comparison_fingerprint, cross_block_fingerprint, exact_fingerprint
+from .fingerprint import (
+    comparison_fingerprint,
+    cross_block_fingerprint,
+    exact_fingerprint,
+    rate_sweep_fingerprint,
+)
 from .frontier import build_pareto_frontier
 from .models import (
     BlockCandidateResult,
@@ -48,6 +53,7 @@ __all__ = [
     "evaluate_study",
     "evaluate_blocked_study",
     "cross_block_fingerprint",
+    "rate_sweep_fingerprint",
     "StudyBlock",
     "BlockedStudySpec",
     "BlockCandidateResult",

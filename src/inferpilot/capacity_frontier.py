@@ -31,6 +31,7 @@ from typing import Literal, Optional
 from pydantic import Field, model_validator
 
 from ._base import SchemaModel
+from .comparison.fingerprint import rate_sweep_fingerprint
 from .config import SLO
 from .results import ExperimentResult
 
@@ -274,22 +275,12 @@ def _diagnose_point(result: ExperimentResult) -> tuple[Optional[str], Optional[s
 
 
 def _require_same_deployment(results: list[ExperimentResult]) -> None:
-    first = results[0]
-    fe, fw = first.config.engine, first.config.workload
-    fh = first.environment.hardware.gpu_name
-    for r in results[1:]:
-        e, w = r.config.engine, r.config.workload
-        same = (
-            e.model == fe.model and e.revision == fe.revision
-            and e.kv_cache_dtype == fe.kv_cache_dtype
-            and r.environment.hardware.gpu_name == fh
-            and w.prompt_tokens == fw.prompt_tokens and w.output_tokens == fw.output_tokens
+    fingerprints = {rate_sweep_fingerprint(result) for result in results}
+    if len(fingerprints) != 1:
+        raise ValueError(
+            "capacity frontier requires identical deployment, resolved configuration, "
+            "environment, workload, and seeds; only request_rate_qps may vary across the sweep"
         )
-        if not same:
-            raise ValueError(
-                "capacity frontier requires the same model/hardware/config/workload-shape; "
-                "only request_rate_qps may vary across the sweep"
-            )
 
 
 def frontier_from_results(

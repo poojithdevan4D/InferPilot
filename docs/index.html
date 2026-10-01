@@ -4,9 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>InferPilot — the vLLM doctor</title>
-<meta name="description" content="InferPilot reads a running vLLM's /metrics and tells you your real bottleneck — and whether a config change like fp8 KV cache will actually help, or do nothing.">
+<meta name="description" content="InferPilot screens live vLLM metrics and tells you which configuration experiment is worth running next.">
 <meta property="og:title" content="InferPilot — the vLLM doctor">
-<meta property="og:description" content="Diagnose a running vLLM and know if a config change will actually help, before you ship it.">
+<meta property="og:description" content="Screen live vLLM signals and choose the next controlled configuration experiment.">
 <style>
   :root{
     --bg:#0b1016; --bg2:#0e141b; --panel:#131b24; --panel2:#182230; --ink:#e9eef4;
@@ -147,10 +147,10 @@
 
   <header class="hero">
     <p class="eyebrow">The vLLM doctor</p>
-    <h1>Know if a config change will actually help — before you ship it.</h1>
-    <p class="lede">Point InferPilot at a running vLLM. It reads the live <code>/metrics</code>, tells you your
-      real bottleneck, and whether a change like <b>fp8 KV cache</b> will help — or do nothing. It diagnoses from
-      evidence, not GPU utilization, and says so when it can't tell.</p>
+    <h1>Know which config change is worth testing next.</h1>
+    <p class="lede">Point InferPilot at a running vLLM. It reads two live <code>/metrics</code> snapshots,
+      screens for KV pressure, preemption, and queueing, and tells you whether a change like
+      <b>fp8 KV cache</b> deserves a controlled canary.</p>
 
     <div class="cmd">
       <span class="dollar">$</span>
@@ -173,19 +173,20 @@
   </section>
 
   <section id="how">
-    <h2>One scrape of <code>/metrics</code>, one honest verdict</h2>
+    <h2>Two snapshots, one calibrated screening result</h2>
     <p class="sub">GPU utilization sits near 100% whether you're genuinely compute-bound or just thrashing on KV cache.
-      It can't tell these apart. Preemptions and queue depth can — so InferPilot reads those and names the regime.</p>
+      It can't tell these apart. Preemptions and queue depth provide a useful screening signal, which
+      InferPilot uses to choose the next controlled experiment.</p>
     <div class="cards">
       <div class="card crit">
-        <div class="tag">⚡ KV-BOUND &amp; PREEMPTING</div>
+        <div class="tag">⚡ KV PRESSURE + PREEMPTION</div>
         <h3>fp8 KV cache → worth testing</h3>
-        <p>KV cache is full and the scheduler is preempting and recomputing tokens — wasted work fp8 can relieve.</p>
+        <p>KV cache is full and the scheduler is preempting. Test fp8 under the same traffic and SLO.</p>
       </div>
       <div class="card idle">
-        <div class="tag">✗ COMPUTE / OTHER-BOUND</div>
-        <h3>fp8 won't help — don't bother</h3>
-        <p>A queue is building while KV has headroom. The GPU math is the limit. The honest "no" most tools won't give you.</p>
+        <div class="tag">○ NO KV CAPACITY SIGNAL</div>
+        <h3>prioritize compute or scaling tests</h3>
+        <p>A queue is building while KV has headroom, so this snapshot does not support KV capacity as the limit.</p>
       </div>
       <div class="card warn">
         <div class="tag">◐ NEAR CAPACITY</div>
@@ -326,12 +327,12 @@
     if(sat==='ok'){cls='idle';glyph='✓ HEALTHY / UNDERUTILIZED';lever='no KV lever is warranted';
       note='The server is keeping up with room to spare. A throughput lever solves a problem you do not have.';
       gpu='<b>GPU '+g+'%.</b> Genuinely idle — the one case utilization reads low.';}
-    else if(k>=0.95&&p>0){cls='crit';glyph='⚡ KV-BOUND & PREEMPTING';lever='kv_cache_dtype=fp8 → worth testing';
-      note='KV cache is full and the scheduler is preempting and recomputing tokens — wasted work fp8 can relieve. Confirm with a controlled canary.';
-      gpu='<b>GPU '+g+'%.</b> Looks maxed out — but the win here is memory, not compute. Utilization alone would hide that.';}
-    else if(p===0&&k<0.95){cls='idle';glyph='✗ COMPUTE / OTHER-BOUND';lever='no config lever will help — scale instead';
-      note='No preemptions and KV has headroom, yet the server is saturated. The GPU math is the limit; precision/batch knobs are a placebo here.';
-      gpu='<b>GPU '+g+'%.</b> Identical to the KV-bound case — which is exactly why utilization cannot decide this.';}
+    else if(k>=0.95&&p>0){cls='crit';glyph='⚡ KV PRESSURE + PREEMPTION';lever='kv_cache_dtype=fp8 → worth testing';
+      note='KV cache is full and the scheduler is preempting. Confirm fp8 with an identical-traffic canary; this screen does not predict effect size.';
+      gpu='<b>GPU '+g+'%.</b> Utilization alone cannot distinguish useful work from scheduler overhead.';}
+    else if(p===0&&k<0.95){cls='idle';glyph='○ NO KV CAPACITY SIGNAL';lever='prioritize compute or scaling tests';
+      note='No preemptions and KV has headroom while the server is saturated. This screen does not support KV capacity as the limiting signal.';
+      gpu='<b>GPU '+g+'%.</b> Utilization alone cannot identify the limiting resource.';}
     else if(k>=0.95&&p===0){cls='warn';glyph='◐ NEAR CAPACITY';lever='watch preemptions — fp8 is insurance, not a measured win';
       note='KV is full without recompute waste yet. fp8 buys headroom before you tip into preemption.';
       gpu='<b>GPU '+g+'%.</b> Same reading as every other busy case.';}

@@ -118,3 +118,15 @@ def cross_block_fingerprint(
     _delete_path(payload, "config.workload.seed")
     _delete_path(payload, "config.workload.arrival_seed")
     return _digest(payload)
+
+
+def rate_sweep_fingerprint(result: ExperimentResult) -> str:
+    """Identity for one deployment swept across offered request rates.
+
+    Only ``request_rate_qps`` may differ.  Human labels and capture timestamps
+    retain the normal identity exclusions; every engine field, workload seed,
+    workload shape, environment value, and resolved engine value remains bound.
+    """
+    payload = _identity_payload(result)
+    _delete_path(payload, "config.workload.request_rate_qps")
+    return _digest(payload)
