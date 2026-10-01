@@ -7,6 +7,9 @@ real bottleneck — and whether a change like fp8 KV cache will help, or do noth
 from evidence, not from GPU utilization, and says so when it can't tell. Open source, MIT, no
 telemetry.
 
+**▶ Try the interactive demo (no install):** https://poojithdevan4d.github.io/InferPilot/ — move the
+signals and watch the verdict change.
+
 <!-- Headline GIF — record it via docs/launch/RECORDING.md, then uncomment:
 ![InferPilot diagnosing a live vLLM](docs/launch/doctor.gif) -->
 
