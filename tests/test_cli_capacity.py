@@ -49,3 +49,11 @@ def test_capacity_with_candidate_reports_lever_impact(tmp_path, capsys) -> None:
     assert rc == 0
     assert "Measured impact" in out
     assert "kv_cache_dtype=fp8" in out
+
+
+def test_bare_invocation_teaches_itself(capsys) -> None:
+    from inferpilot.cli import main
+    rc = main([])
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "the vLLM doctor" in out and "inferpilot doctor --url" in out

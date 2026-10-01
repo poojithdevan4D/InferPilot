@@ -421,9 +421,9 @@ def _inspect(args: argparse.Namespace) -> int:
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="inferpilot",
-        description="Evidence-gated optimization for LLM inference serving.",
+        description="The vLLM doctor — diagnose your inference server and know if a config change will help.",
     )
-    sub = parser.add_subparsers(dest="command", required=True)
+    sub = parser.add_subparsers(dest="command", required=False)
     demo = sub.add_parser(
         "demo",
         help="run the complete decision pipeline on synthetic metadata (no GPU)",
@@ -528,8 +528,26 @@ def _parser() -> argparse.ArgumentParser:
     return parser
 
 
+_INTRO = """InferPilot — the vLLM doctor
+
+Diagnose a running vLLM and know if a config change will actually help.
+
+  Diagnose a live server (no benchmark run):
+    inferpilot doctor --url http://localhost:8000
+    inferpilot doctor --url http://localhost:8000 --watch     # leave it running
+
+  Turn a rate sweep into a capacity ceiling, $/token, and a plan:
+    inferpilot capacity run@4qps run@6qps --ttft-p95-ms 500 --target-qps 8
+
+Run `inferpilot <command> -h` for options, or `inferpilot -h` for every command.
+"""
+
+
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
+    if not hasattr(args, "handler"):   # no subcommand given — teach, don't error
+        print(_INTRO)
+        return 0
     return args.handler(args)
 
 
