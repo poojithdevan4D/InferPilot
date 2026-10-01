@@ -1,48 +1,16 @@
 # InferPilot
 
-**Evidence-gated optimization for LLM inference serving.**
+**The vLLM doctor — know if a config change will actually help, before you ship it.**
 
-InferPilot turns a measured vLLM run into one understandable next step:
+Point InferPilot at a running vLLM: it reads the live Prometheus `/metrics` and tells you your
+real bottleneck — and whether a change like fp8 KV cache will help, or do nothing. It diagnoses
+from evidence, not from GPU utilization, and says so when it can't tell. Open source, MIT, no
+telemetry.
 
-- keep the current configuration for this observed workload;
-- run one bounded baseline-versus-candidate experiment; or
-- abstain and state which evidence is missing.
+<!-- Headline GIF — record it via docs/launch/RECORDING.md, then uncomment:
+![InferPilot diagnosing a live vLLM](docs/launch/doctor.gif) -->
 
-It does not guess from GPU utilization alone, inspect prompt text, or modify a deployment.
-
-## Try the complete decision path
-
-No GPU, model download, or API key is required:
-
-```bash
-uv sync --extra dev --locked
-uv run inferpilot demo
-```
-
-Expected output:
-
-```text
-InferPilot quickstart (synthetic metadata; no GPU)
-
-Status: experiment_recommended
-Diagnosis: kv_pressure (load=overloaded)
-Evidence: aligned; transferability=test_before_use
-Candidate: {'kv_cache_dtype': 'fp8'}
-Estimated paired experiment: 120.0 GPU-s / $0.0333
-...
-The candidate is a test, not a deployment.
-```
-
-This example is explicitly synthetic. It exercises the same contracts, diagnosis, economics, and
-Evidence Card used for a real run; it is not included in the empirical evidence corpus.
-
-To inspect the machine-readable result:
-
-```bash
-uv run inferpilot demo --output evidence-card.json
-```
-
-## The vLLM doctor — diagnose your server in one line
+## Diagnose your vLLM in one line
 
 Already running vLLM? Point it at the server. No install, no benchmark run:
 
@@ -89,6 +57,33 @@ It scrapes `/metrics` twice itself and tells you which regime you are in —
 
 Once you have a rate sweep, `inferpilot capacity` turns it into an SLO-capacity ceiling,
 a `$/token`, and an action plan to a target QPS.
+
+## Go deeper: the full decision path (no GPU)
+
+No GPU, model download, or API key is required:
+
+```bash
+uv sync --extra dev --locked
+uv run inferpilot demo
+```
+
+Expected output:
+
+```text
+InferPilot quickstart (synthetic metadata; no GPU)
+
+Status: experiment_recommended
+Diagnosis: kv_pressure (load=overloaded)
+Evidence: aligned; transferability=test_before_use
+Candidate: {'kv_cache_dtype': 'fp8'}
+Estimated paired experiment: 120.0 GPU-s / $0.0333
+...
+The candidate is a test, not a deployment.
+```
+
+This example is explicitly synthetic. It exercises the same contracts, diagnosis, economics, and
+Evidence Card used for a real run; it is not included in the empirical evidence corpus. To inspect
+the machine-readable result: `uv run inferpilot demo --output evidence-card.json`.
 
 ## The pipeline
 
@@ -243,13 +238,17 @@ FP8 candidate can be accepted. Read the concise
 
 ## Repository map
 
-Start with only these paths:
+Start with the paths you actually use:
 
-- [`src/inferpilot/evidence_card.py`](src/inferpilot/evidence_card.py) — the operator-facing decision contract.
-- [`src/inferpilot/saturation.py`](src/inferpilot/saturation.py) — conservative load assessment.
-- [`src/inferpilot/runner/load_evidence.py`](src/inferpilot/runner/load_evidence.py) — aligned evidence collection.
-- [`tests/test_evidence_card.py`](tests/test_evidence_card.py) — the smallest end-to-end behavior specification.
-- [`docs/README.md`](docs/README.md) — choose a deeper technical or research reading path.
+- [`src/inferpilot/metrics_snapshot.py`](src/inferpilot/metrics_snapshot.py) — the `doctor` read-only screening from `/metrics`.
+- [`src/inferpilot/capacity_frontier.py`](src/inferpilot/capacity_frontier.py) — the SLO-capacity ceiling from a rate sweep.
+- [`src/inferpilot/inference_plan.py`](src/inferpilot/inference_plan.py) — the action plan to a target QPS.
+- [`src/inferpilot/cli.py`](src/inferpilot/cli.py) — the two commands, `doctor` and `capacity`.
+
+Deeper internals: [`saturation.py`](src/inferpilot/saturation.py) (conservative load assessment),
+[`diagnosis.py`](src/inferpilot/diagnosis.py) (regime classifier), and
+[`runner/load_evidence.py`](src/inferpilot/runner/load_evidence.py) (aligned evidence collection).
+[`docs/README.md`](docs/README.md) opens a deeper technical or research reading path.
 
 The many files under `docs/experiments/` are the audit trail, including invalid and negative studies.
 They are evidence for reviewers, not required reading for first use.
