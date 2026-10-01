@@ -4,6 +4,18 @@ The single most important viral asset is a ~12-second GIF at the top of the READ
 showing `inferpilot doctor` print a verdict about a live server. This kit records it
 authentically with **no GPU** by driving the doctor against a local mock `/metrics`.
 
+## One command (Ubuntu/Debian)
+
+```bash
+bash docs/launch/record.sh
+```
+
+It installs `asciinema` (via apt, one sudo prompt), fetches the `agg` prebuilt binary
+(no Rust), starts the mock servers, records the demo, and writes `docs/launch/doctor.gif`.
+No `brew`, no `cargo`, no `pipx` needed. The manual steps below are the fallback.
+
+---
+
 ## One-time setup
 
 ```bash
