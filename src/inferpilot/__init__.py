@@ -69,6 +69,23 @@ from .saturation import SaturationReport, detect_saturation
 from .status import ExperimentStatus, FailureRecord
 from .trace import TraceRequest, WorkloadTrace, load_trace_jsonl, load_trace_v01, summarize_trace
 from .workload import WorkloadSpec
+from .capacity_frontier import (
+    CapacityFrontier,
+    CapacityPoint,
+    estimate_frontier,
+    frontier_from_results,
+)
+from .lever_forecast import LeverForecast, forecast_lever
+from .lever_impact import LeverImpact, compare_lever
+from .inference_plan import DeploymentPlan, PlanStep, plan_to_target
+from .metrics_snapshot import LiveReading, VLLMMetricsSnapshot, inspect_metrics
+from .report import (
+    render_forecast,
+    render_frontier,
+    render_impact,
+    render_live_reading,
+    render_plan,
+)
 
 __version__ = SCHEMA_VERSION
 
@@ -145,4 +162,24 @@ __all__ = [
     "ExperimentResult",
     "ExperimentStatus",
     "FailureRecord",
+    # capacity analysis
+    "CapacityPoint",
+    "CapacityFrontier",
+    "estimate_frontier",
+    "frontier_from_results",
+    "LeverForecast",
+    "forecast_lever",
+    "LeverImpact",
+    "compare_lever",
+    "DeploymentPlan",
+    "PlanStep",
+    "plan_to_target",
+    "VLLMMetricsSnapshot",
+    "LiveReading",
+    "inspect_metrics",
+    "render_frontier",
+    "render_forecast",
+    "render_impact",
+    "render_plan",
+    "render_live_reading",
 ]
