@@ -58,6 +58,11 @@ class CapacityPoint(SchemaModel):
     overloaded: bool = Field(description="Load assessment / saturation says the server is not keeping up.")
     slo_margin: Optional[float] = Field(default=None, allow_inf_nan=False)
     binding_metric: Optional[str] = None
+    # Optional bottleneck context for this operating point, carried from diagnose() when
+    # available. Purely descriptive — it does not affect the ceiling math — but it lets the
+    # lever forecast read what limits the ceiling without a second diagnosis argument.
+    regime: Optional[str] = None
+    recommended_lever: Optional[str] = None
 
     def keeps_up(self, keepup_fraction: float) -> bool:
         return not self.overloaded and self.achieved_qps >= keepup_fraction * self.offered_qps
