@@ -17,7 +17,13 @@ from .evidence_card import OptimizationEvidenceCard, build_evidence_card
 from .inference_plan import plan_to_target
 from .lever_impact import compare_lever
 from .metrics_snapshot import inspect_metrics
-from .report import render_frontier, render_impact, render_live_reading, render_plan
+from .report import (
+    render_frontier,
+    render_impact,
+    render_live_line,
+    render_live_reading,
+    render_plan,
+)
 from .mechanism import MechanismEvidence
 from .phases import RunnerPhaseTiming
 from .results import ExperimentResult
@@ -339,7 +345,47 @@ def _fetch_metrics(url: str, timeout: float) -> str:
         return resp.read().decode("utf-8", "replace")
 
 
+def _want_color(args: argparse.Namespace) -> bool:
+    return (sys.stdout.isatty() and not getattr(args, "plain", False)
+            and os.environ.get("NO_COLOR") is None and os.environ.get("TERM") != "dumb")
+
+
+def _watch_loop(args: argparse.Namespace) -> int:
+    import time
+
+    from .report import _SHORT, _paint  # short labels for the change marker
+
+    color = _want_color(args)
+    print(f"watching {args.url} every {args.interval:g}s — Ctrl-C to stop", file=sys.stderr)
+    prev_text = None
+    prev_verdict = None
+    try:
+        while True:
+            try:
+                text = _fetch_metrics(args.url, args.timeout)
+            except OSError as exc:
+                print(f"{time.strftime('%H:%M:%S')}  unreachable ({exc})", file=sys.stderr)
+                time.sleep(args.interval)
+                continue
+            reading = inspect_metrics(prev_text, text) if prev_text is not None else inspect_metrics(text)
+            line = render_live_line(reading, stamp=time.strftime("%H:%M:%S"), color=color)
+            if prev_verdict is not None and reading.verdict != prev_verdict:
+                was, now = _SHORT[prev_verdict][0], _SHORT[reading.verdict][0]
+                line += "  " + _paint(f"⚠ changed: {was} → {now}", "bold", color=color)
+            print(line, flush=True)
+            prev_text, prev_verdict = text, reading.verdict
+            time.sleep(args.interval)
+    except KeyboardInterrupt:
+        print("\nstopped.", file=sys.stderr)
+        return 0
+
+
 def _inspect(args: argparse.Namespace) -> int:
+    if args.watch:
+        if not args.url:
+            print("inspect --watch needs a --url to poll.", file=sys.stderr)
+            return 2
+        return _watch_loop(args)
     if args.url:
         import time
 
@@ -366,9 +412,7 @@ def _inspect(args: argparse.Namespace) -> int:
     if args.json:
         print(reading.model_dump_json(indent=2))
         return 0
-    color = (sys.stdout.isatty() and not args.plain
-             and os.environ.get("NO_COLOR") is None and os.environ.get("TERM") != "dumb")
-    print(render_live_reading(reading, color=color))
+    print(render_live_reading(reading, color=_want_color(args)))
     if args.output is not None:
         args.output.write_text(reading.model_dump_json(indent=2))
     return 0
@@ -470,7 +514,9 @@ def _parser() -> argparse.ArgumentParser:
     inspect.add_argument("--url", type=str,
                          help="vLLM base URL or /metrics endpoint; scrapes it for you (no curl needed)")
     inspect.add_argument("--interval", type=float, default=45.0,
-                         help="seconds between the two scrapes (default 45; 0 = single snapshot)")
+                         help="seconds between scrapes (default 45; also the --watch poll cadence)")
+    inspect.add_argument("--watch", action="store_true",
+                         help="keep polling --url and print a status line each cycle, flagging regime changes")
     inspect.add_argument("--timeout", type=float, default=5.0, help="HTTP timeout per scrape (s)")
     inspect.add_argument("before", type=Path, nargs="?",
                          help="or a saved /metrics file, instead of --url")

@@ -182,6 +182,34 @@ def render_live_reading(reading: LiveReading, *, color: bool = False) -> str:
     return "\n".join(out)
 
 
+_SHORT = {
+    "kv_capacity_bound_preempting": ("⚡ kv-bound + preempting", "yellow"),
+    "near_capacity": ("◐ near capacity", "yellow"),
+    "not_kv_bound": ("✗ compute/other-bound", "red"),
+    "healthy_or_underutilized": ("✓ healthy", "green"),
+    "need_second_snapshot": ("… warming up", "cyan"),
+    "insufficient_metrics": ("… missing metrics", "cyan"),
+}
+
+
+def render_live_line(reading: LiveReading, *, stamp: str = "", color: bool = False) -> str:
+    """A compact one-line status for `doctor --watch`."""
+    snap = reading.after or reading.before
+    label, lcolor = _SHORT[reading.verdict]
+    parts = [_paint(stamp, "grey", color=color)] if stamp else []
+    # pad the (uncolored) label to a fixed width so columns line up
+    pad = " " * max(0, 24 - len(label))
+    parts.append(_paint(label, lcolor, color=color) + pad)
+    kv = snap.kv_cache_usage_perc
+    parts.append(f"KV {kv * 100:>3.0f}%" if kv is not None else "KV   —")
+    w = snap.num_requests_waiting
+    parts.append(f"q{w:g}" if w is not None else "q—")
+    d = _preempt_delta(reading)
+    if d is not None:
+        parts.append(_paint(f"preempt +{d:g}", "red", color=color) if d > 0 else "preempt 0")
+    return "  ".join(parts)
+
+
 def _preempt_delta(reading: LiveReading):
     b, a = reading.before, reading.after
     if a is None or b.num_preemptions_total is None or a.num_preemptions_total is None:

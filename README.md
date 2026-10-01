@@ -52,6 +52,19 @@ It scrapes `/metrics` twice itself and tells you which regime you are in —
 `near-capacity`, or `healthy` — and names the missing metric when it can't decide.
 `--json` for scripts, `--plain` for no color.
 
+Leave it running to watch for trouble — it prints a line per check and flags the moment
+the regime changes:
+
+```bash
+inferpilot doctor --url http://localhost:8000 --watch
+```
+
+```text
+18:00:05  … warming up             KV  98%  q7
+18:00:06  ⚡ kv-bound + preempting  KV  98%  q7  preempt +9   ⚠ changed: warming up → preempting
+18:00:16  ✓ healthy                KV  41%  q0  preempt 0     ⚠ changed: preempting → healthy
+```
+
 **Install:** `uvx inferpilot …` runs it with zero install. To keep it around:
 `uv tool install inferpilot` or `pipx install inferpilot` (or plain `pip install inferpilot`).
 

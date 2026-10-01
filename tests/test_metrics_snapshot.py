@@ -96,6 +96,16 @@ def test_cli_inspect_with_no_source_is_friendly(capsys) -> None:
     assert "--url" in capsys.readouterr().err
 
 
+def test_render_live_line_is_compact() -> None:
+    from inferpilot.report import render_live_line
+    r = inspect_metrics(_metrics(kv=0.98, waiting=6, preemptions=10),
+                        _metrics(kv=0.98, waiting=6, preemptions=19))
+    line = render_live_line(r, stamp="14:32:07")
+    assert "14:32:07" in line and "kv-bound" in line and "KV" in line and "q6" in line
+    assert "preempt +9" in line
+    assert "\n" not in line  # one line
+
+
 def test_cli_doctor_alias_works(tmp_path, capsys) -> None:
     b = tmp_path / "b.txt"; b.write_text(_metrics(kv=0.98, waiting=5, preemptions=10))
     a = tmp_path / "a.txt"; a.write_text(_metrics(kv=0.98, waiting=6, preemptions=15))
