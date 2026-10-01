@@ -1,59 +1,78 @@
-# Ready-to-post launch content
+# Launch content (research-tuned)
 
-Links: repo https://github.com/poojithdevan4D/InferPilot · vLLM PR (open, under review) https://github.com/vllm-project/vllm/pull/57698 · blog `docs/blog/proving-when-fp8-kv-helps-with-an-exact-counter.md`
-Images: `docs/launch/fp8-recompute-result.png` (primary chart) · PR screenshot (secondary).
-Honesty rule: the PR is OPEN / under review — say "open PR to vLLM," never "merged" or "I contributed to vLLM."
-
----
-
-## LinkedIn (post as-is · attach the chart)
-
-Everyone sells fp8 KV cache as a free vLLM speedup. It's not free — and not always faster. So I built the thing that proves *when* it helps, and *why*, with evidence you can check.
-
-The finding: fp8 only helps when your server is preempting and **recomputing tokens** — pure wasted work. Compute-bound? It does nothing. And GPU utilization can't tell the difference (both sit at ~100%). The real signal is recomputed tokens.
-
-vLLM didn't expose that number. So I added the exact counter to vLLM's scheduler — it's now an **open PR to vLLM core** (#57698, under review).
-
-Measured on an A10G: recomputed tokens → **0** under fp8, **+30% throughput**, latency down, 100% success. Total GPU cost: **$0.81**.
-
-The part I'm proudest of: I graded it as **NOT a pass.** My preregistered rule required conditions one cell missed, so the verdict is "not yet" — I didn't move the goalposts to the result I wanted.
-
-That discipline is the product. InferPilot diagnoses vLLM configs only when the evidence supports it — and says "I don't know" out loud when it doesn't.
-
-If you run vLLM at load, I'd love to test it on a sanitized trace of yours. 👇
-
-🔗 https://github.com/poojithdevan4D/InferPilot
+Positioning: **InferPilot — the vLLM doctor.** Hook: it often tells you *not* to bother.
+Install headline everywhere: `uvx inferpilot doctor --url http://localhost:8000`
+Links: repo https://github.com/poojithdevan4D/InferPilot · vLLM PR https://github.com/vllm-project/vllm/pull/57698
+Asset: the `doctor.gif` at the top of the README (see RECORDING.md).
+Rules from the research: lead with substance + open source, disclose AI assistance, no links in HN/Reddit titles, be in the thread for the first few hours, never beg upvotes.
 
 ---
 
-## vLLM GitHub Discussions — Show and tell (post as-is · embed the chart)
+## Hacker News — Show HN (post FIRST; it's the primary spike for CLI/infra tools)
 
-**Title:** An exact recomputed-token counter + a reproducible study of when fp8 KV cache actually helps
+**Title** (no link in title, <80 chars):
+`Show HN: InferPilot – the vLLM doctor that tells you when fp8 won't help`
 
-I wanted to pin down *when* fp8 KV cache helps on vLLM — mechanistically, not by vibes.
+**First comment (post within 5 min of submitting):**
 
-Hypothesis: it helps only when the server is KV-bound enough to preempt and recompute tokens. The discriminator is recomputed tokens, not GPU util (both ~100%). vLLM didn't expose an exact count, so I added one to the scheduler via the existing Prometheus path — **open PR #57698** (feedback on the metric semantics very welcome; that's partly why it's up).
+I run into the same thing every time I tune a vLLM server: every knob is sold as a free speedup, and GPU utilization sits near 100% whether you're genuinely compute-bound or just thrashing on KV cache. So I built a tool that reads a live vLLM's Prometheus /metrics and tells you which regime you're actually in — and whether a change like fp8 KV cache will help, or do nothing.
 
-Canary: 23,324 recomputed-token executions under forced pressure, **0** in a low-pressure control.
+Two scrapes, no benchmark run:
 
-Paired A10G study (Qwen2.5-3B, 0.29.0, pinned image): recomputed tokens → **0** under fp8 in every cell, **+30.8% geomean throughput**, latency down, 100% success, **$0.81** total. I graded it `NOT_TARGET_REGIME` against a preregistered rule — directional, not a validated law. No cross-model or quality-safety claims.
+    uvx inferpilot doctor --url http://localhost:8000
 
-Full evidence + the honest negative: https://github.com/poojithdevan4D/InferPilot
+It prints one of: KV-bound & preempting (fp8 worth a canary), compute/other-bound (fp8 won't help — don't bother), near-capacity, or healthy — plus the evidence that forced the call. The part I'm proudest of is the honest negative: a tool that says "you're compute-bound, save your time" is more useful to me than one that always finds a speedup.
+
+The mechanism behind it (an exact recomputed-token counter) is an open PR to vLLM core (#57698). Everything's MIT, no telemetry.
+
+Honest limits: it's a screening read from /metrics, not a measured capacity guarantee — for that it runs a controlled rate sweep. I validated the fp8 mechanism on a 3B model (recompute → 0, +30% throughput) but a 7B held-out study came back inconclusive (the win held, the mechanism didn't replicate), and I say so in the repo. Also: this was built with heavy AI assistance, which I mention because I'd want to know.
+
+Happy to answer anything.
 
 ---
 
-## X / Twitter (thread · attach chart to tweet 4)
+## vLLM GitHub Discussions — Show and tell (lowest-risk, highest-credibility venue)
 
-1/ Everyone sells fp8 KV cache as a free vLLM speedup. It's not free, and not always faster. I built the tool that proves *when* it helps — and *why*. 🧵
+**Title:** InferPilot — a read-only "doctor" that screens a live vLLM from /metrics and says whether fp8 KV will help
 
-2/ fp8 only helps when your server preempts and **recomputes tokens** (wasted work). Compute-bound? It does nothing. GPU util can't tell them apart — both ~100%. The real signal is recomputed tokens.
+Point it at a running vLLM and it screens the server from its Prometheus /metrics (two scrapes), classifying the regime: KV-bound & preempting → fp8 worth a canary; queue building while KV has headroom → compute/other-bound, fp8 won't help; near-capacity; healthy. One line:
 
-3/ vLLM didn't expose that number. So I added the exact counter to its scheduler. It's now an **open PR to vLLM core** (under review): github.com/vllm-project/vllm/pull/57698
+    uvx inferpilot doctor --url http://localhost:8000
 
-4/ Result (A10G, paired): recomputed tokens → **0** under fp8, **+30% throughput**, latency down, 100% success. Total GPU cost: **$0.81**.
+It's built on the exact recomputed-token counter I proposed in #57698 (the discriminator for preemption-driven recompute waste). The honest negative is the point — it tells you when a lever won't move anything. MIT, no telemetry, built with AI assistance (disclosed).
 
-5/ Best part: I graded it as NOT a pass. My preregistered rule needed conditions one cell missed — so the verdict is "not yet." Didn't move the goalposts.
+Feedback very welcome on the regime heuristics and the metric semantics. Repo: https://github.com/poojithdevan4D/InferPilot
 
-6/ That discipline is the product. InferPilot diagnoses vLLM configs only when evidence supports it, and abstains loudly when it doesn't. Honest limits, one model family.
+---
 
-7/ Repo + full write-up + the honest negative: github.com/poojithdevan4D/InferPilot — run vLLM at load? I'd love a sanitized trace. @vllm_project
+## LinkedIn (attach the doctor.gif)
+
+Every vLLM knob is sold as a free speedup. GPU utilization can't tell you which ones matter — it sits near 100% whether you're compute-bound or thrashing on KV cache.
+
+So I built InferPilot — the vLLM doctor. Point it at your server and it reads the live /metrics and tells you the real bottleneck, and whether a change like fp8 KV cache will actually help:
+
+uvx inferpilot doctor --url http://localhost:8000
+
+The part I care about most: it's honest. When you're compute-bound, it says "fp8 won't help — don't bother." A tool that tells you NOT to do something is rarer, and more useful, than one that always sells a win.
+
+Open source (MIT), no telemetry, built with heavy AI assistance (worth disclosing). The mechanism it relies on is an open PR to vLLM core.
+
+If you run vLLM at load, I'd genuinely value your eyes on it. 🔗 in comments.
+
+---
+
+## X / Twitter (thread; attach the gif to tweet 1)
+
+1/ Every vLLM knob is sold as a free speedup. GPU util can't tell you which ones matter — it's ~100% whether you're compute-bound or thrashing on KV cache. So I built the vLLM doctor. 🧵
+
+2/ Point it at your server, no benchmark run:
+
+   uvx inferpilot doctor --url http://localhost:8000
+
+It reads live /metrics and tells you the regime + whether fp8 KV will help.
+
+3/ The best part is the honest NO: if you're compute-bound it says "fp8 won't help — don't bother." A tool that tells you not to do something beats one that always finds a win.
+
+4/ Under the hood it's an exact recomputed-token counter — now an open PR to vLLM core (#57698). MIT, no telemetry, built with AI assistance (disclosed).
+
+5/ Repo + the honest limits (3B mechanism confirmed, 7B inconclusive — I say so): github.com/poojithdevan4D/InferPilot  @vllm_project
