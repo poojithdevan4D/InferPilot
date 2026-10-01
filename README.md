@@ -10,8 +10,7 @@ telemetry.
 **▶ Try the interactive demo (no install):** https://poojithdevan4d.github.io/InferPilot/ — move the
 signals and watch the verdict change.
 
-<!-- Headline GIF — record it via docs/launch/RECORDING.md, then uncomment:
-![InferPilot diagnosing a live vLLM](docs/launch/doctor.gif) -->
+![InferPilot diagnosing a live vLLM](docs/launch/doctor.gif)
 
 ## Diagnose your vLLM in one line
 
