@@ -15,7 +15,8 @@ from .config import ExperimentConfig, SLO
 from .evidence_card import OptimizationEvidenceCard, build_evidence_card
 from .inference_plan import plan_to_target
 from .lever_impact import compare_lever
-from .report import render_frontier, render_impact, render_plan
+from .metrics_snapshot import inspect_metrics
+from .report import render_frontier, render_impact, render_live_reading, render_plan
 from .mechanism import MechanismEvidence
 from .phases import RunnerPhaseTiming
 from .results import ExperimentResult
@@ -327,6 +328,16 @@ def _capacity(args: argparse.Namespace) -> int:
     return 0
 
 
+def _inspect(args: argparse.Namespace) -> int:
+    before = args.before.read_text()
+    after = args.after.read_text() if args.after is not None else None
+    reading = inspect_metrics(before, after)
+    print(render_live_reading(reading))
+    if args.output is not None:
+        args.output.write_text(reading.model_dump_json(indent=2))
+    return 0
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="inferpilot",
@@ -416,6 +427,15 @@ def _parser() -> argparse.ArgumentParser:
                           help="candidate rate-sweep bundles (same sweep with the lever applied)")
     capacity.add_argument("--lever", type=str, help="the lever under test, e.g. kv_cache_dtype=fp8")
     capacity.set_defaults(handler=_capacity)
+    inspect = sub.add_parser(
+        "inspect",
+        help="read-only screening from a live vLLM's Prometheus /metrics (no benchmark run)",
+    )
+    inspect.add_argument("before", type=Path, help="a /metrics snapshot (curl http://host:8000/metrics > before.txt)")
+    inspect.add_argument("after", type=Path, nargs="?",
+                         help="a second snapshot 30-60s later, to measure the preemption rate")
+    inspect.add_argument("--output", type=Path, help="write the LiveReading JSON")
+    inspect.set_defaults(handler=_inspect)
     return parser
 
 

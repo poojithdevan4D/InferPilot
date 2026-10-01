@@ -12,6 +12,7 @@ from .capacity_frontier import CapacityFrontier
 from .inference_plan import DeploymentPlan
 from .lever_forecast import LeverForecast
 from .lever_impact import LeverImpact
+from .metrics_snapshot import LiveReading
 
 
 def _slo_str(frontier: CapacityFrontier) -> str:
@@ -111,6 +112,31 @@ def render_plan(plan: DeploymentPlan) -> str:
         if step.confirm:
             lines.append(f"     -> {step.confirm}")
     return "\n".join(lines)
+
+
+_READING_HEADLINE = {
+    "kv_capacity_bound_preempting": "KV-BOUND & PREEMPTING — fp8 worth a canary",
+    "near_capacity": "NEAR CAPACITY — KV full, not preempting yet",
+    "not_kv_bound": "COMPUTE/OTHER-BOUND — fp8 won't help",
+    "healthy_or_underutilized": "HEALTHY / UNDERUTILIZED",
+    "need_second_snapshot": "NEED A SECOND SNAPSHOT",
+    "insufficient_metrics": "INSUFFICIENT METRICS",
+}
+
+
+def render_live_reading(reading: LiveReading) -> str:
+    snap = reading.after or reading.before
+    facts = []
+    if snap.kv_cache_usage_perc is not None:
+        facts.append(f"KV {snap.kv_cache_usage_perc * 100:.0f}%")
+    if snap.num_requests_waiting is not None:
+        facts.append(f"waiting {snap.num_requests_waiting:g}")
+    if snap.num_requests_running is not None:
+        facts.append(f"running {snap.num_requests_running:g}")
+    factstr = ("  (" + ", ".join(facts) + ")") if facts else ""
+    return (f"Live /metrics screening: {_READING_HEADLINE[reading.verdict]}{factstr}\n"
+            f"  {reading.next_step}"
+            + (f"\n  Lever to test: {reading.recommended_lever}" if reading.recommended_lever != "none" else ""))
 
 
 def _shift(impact: LeverImpact) -> str:
