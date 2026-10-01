@@ -1,0 +1,325 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="description" content="InferPilot — the vLLM doctor. Interactive demo of diagnosing a vLLM server's bottleneck.">
+<title>InferPilot Console</title>
+<style>
+  :root{
+    --bg:#f4f6f8; --panel:#ffffff; --panel-2:#eef1f5; --ink:#12181f; --ink-soft:#4a5763;
+    --line:#d8dee6; --line-strong:#c3ccd6; --accent:#0e7c86; --accent-ink:#0a5f67;
+    --good:#1a7f4b; --good-bg:#e3f4ea; --warn:#a66300; --warn-bg:#faefd7;
+    --crit:#b3261e; --crit-bg:#fbe6e4; --idle:#4a5763; --idle-bg:#e7ebf0;
+    --mono:'IBM Plex Mono',ui-monospace,SFMono-Regular,Menlo,monospace;
+    --sans:'IBM Plex Sans',system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+    color-scheme:light;
+  }
+  :root:not([data-theme="light"]){ @media (prefers-color-scheme:dark){
+    --bg:#0c1116; --panel:#141b22; --panel-2:#1b232c; --ink:#e8eef4; --ink-soft:#9aa8b5;
+    --line:#232e38; --line-strong:#31404c; --accent:#3fb8c4; --accent-ink:#7bd3db;
+    --good:#4ec985; --good-bg:#132a1e; --warn:#e0a53a; --warn-bg:#2c2410;
+    --crit:#f0736a; --crit-bg:#2c1512; --idle:#9aa8b5; --idle-bg:#1b232c;
+    color-scheme:dark;
+  }}
+  :root[data-theme="dark"]{
+    --bg:#0c1116; --panel:#141b22; --panel-2:#1b232c; --ink:#e8eef4; --ink-soft:#9aa8b5;
+    --line:#232e38; --line-strong:#31404c; --accent:#3fb8c4; --accent-ink:#7bd3db;
+    --good:#4ec985; --good-bg:#132a1e; --warn:#e0a53a; --warn-bg:#2c2410;
+    --crit:#f0736a; --crit-bg:#2c1512; --idle:#9aa8b5; --idle-bg:#1b232c;
+    color-scheme:dark;
+  }
+  *{box-sizing:border-box}
+  body{background:var(--bg);color:var(--ink);font-family:var(--sans);line-height:1.5;
+    -webkit-font-smoothing:antialiased}
+  .wrap{max-width:1000px;margin:0 auto;padding-block:32px;padding-left:18px;padding-right:18px}
+  .eyebrow{font-family:var(--mono);font-size:12px;letter-spacing:.12em;text-transform:uppercase;
+    color:var(--accent-ink);margin:0 0 10px}
+  h1{font-size:clamp(28px,5vw,44px);line-height:1.08;margin:0 0 14px;font-weight:600;
+    letter-spacing:-.02em;text-wrap:balance}
+  h1 .q{color:var(--accent)}
+  .lede{font-size:clamp(16px,2.4vw,19px);color:var(--ink-soft);max-width:60ch;margin:0 0 8px}
+  .repo-top{display:inline-flex;gap:8px;align-items:center;font-family:var(--mono);font-size:13px;
+    color:var(--ink-soft);text-decoration:none;border:1px solid var(--line);border-radius:8px;
+    padding:7px 12px;margin-top:14px;background:var(--panel)}
+  .repo-top:hover{border-color:var(--accent);color:var(--accent-ink)}
+  .console{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:28px}
+  @media(max-width:720px){.console{grid-template-columns:1fr}}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:20px}
+  .panel h2{font-size:13px;font-family:var(--mono);letter-spacing:.06em;text-transform:uppercase;
+    color:var(--ink-soft);margin:0 0 4px;font-weight:500}
+  .panel .sub{font-size:13px;color:var(--ink-soft);margin:0 0 18px}
+  .ctrl{margin:18px 0}
+  .ctrl .row{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:7px}
+  .ctrl label{font-size:14px;font-weight:500}
+  .ctrl .val{font-family:var(--mono);font-size:14px;color:var(--accent-ink);
+    font-variant-numeric:tabular-nums}
+  input[type=range]{width:100%;accent-color:var(--accent);height:22px}
+  .seg{display:flex;gap:0;border:1px solid var(--line-strong);border-radius:8px;overflow:hidden}
+  .seg button{flex:1;border:0;background:var(--panel-2);color:var(--ink-soft);
+    font-family:var(--mono);font-size:13px;padding:9px 6px;cursor:pointer}
+  .seg button[aria-pressed="true"]{background:var(--accent);color:#fff}
+  .presets{display:flex;flex-wrap:wrap;gap:8px;margin-top:4px}
+  .presets button{font-family:var(--mono);font-size:12px;padding:7px 11px;border-radius:20px;
+    border:1px solid var(--line-strong);background:transparent;color:var(--ink-soft);cursor:pointer}
+  .presets button:hover{border-color:var(--accent);color:var(--accent-ink)}
+  /* verdict */
+  .verdict{border-radius:12px;padding:18px;border:1px solid var(--line);background:var(--panel-2);
+    transition:background .25s,border-color .25s}
+  .verdict.good{background:var(--good-bg);border-color:var(--good)}
+  .verdict.warn{background:var(--warn-bg);border-color:var(--warn)}
+  .verdict.crit{background:var(--crit-bg);border-color:var(--crit)}
+  .verdict.idle{background:var(--idle-bg);border-color:var(--line-strong)}
+  .chip{display:inline-block;font-family:var(--mono);font-size:12px;font-weight:600;
+    letter-spacing:.04em;text-transform:uppercase;padding:4px 10px;border-radius:6px;color:#fff}
+  .good .chip{background:var(--good)} .warn .chip{background:var(--warn)}
+  .crit .chip{background:var(--crit)} .idle .chip{background:var(--idle)}
+  .verdict h3{font-size:20px;margin:12px 0 6px;letter-spacing:-.01em}
+  .verdict p{margin:0 0 10px;font-size:14.5px;color:var(--ink)}
+  .lever{font-family:var(--mono);font-size:13px;background:var(--panel);border:1px dashed var(--line-strong);
+    border-radius:8px;padding:10px 12px;color:var(--ink)}
+  .lever b{color:var(--accent-ink)}
+  .gpu-note{display:flex;gap:10px;align-items:center;margin-top:14px;padding:11px 13px;
+    border-radius:9px;background:var(--panel);border:1px solid var(--line)}
+  .gpu-dot{width:38px;height:38px;border-radius:50%;flex:none;display:grid;place-items:center;
+    font-family:var(--mono);font-size:11px;font-weight:600;color:#fff;background:var(--idle)}
+  .gpu-note small{font-size:12.5px;color:var(--ink-soft);line-height:1.4}
+  .gpu-note b{color:var(--ink)}
+  /* punchline */
+  .punch{margin-top:36px;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:22px}
+  .punch h2{font-size:19px;margin:0 0 4px;letter-spacing:-.01em}
+  .punch>p{color:var(--ink-soft);font-size:14.5px;margin:0 0 18px;max-width:64ch}
+  .twin{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  @media(max-width:620px){.twin{grid-template-columns:1fr}}
+  .card{border:1px solid var(--line);border-radius:11px;padding:16px;background:var(--panel-2)}
+  .card .gauge{font-family:var(--mono);font-size:12px;color:var(--ink-soft);margin-bottom:10px;
+    display:flex;justify-content:space-between}
+  .card .gauge b{color:var(--ink);font-variant-numeric:tabular-nums}
+  .card .tag{font-family:var(--mono);font-size:12px;font-weight:600;padding:3px 9px;border-radius:5px;color:#fff}
+  .card h4{margin:12px 0 4px;font-size:15px}
+  .card p{margin:0;font-size:13px;color:var(--ink-soft)}
+  /* chart */
+  .measured{margin-top:36px}
+  .measured h2{font-size:19px;margin:0 0 4px;letter-spacing:-.01em}
+  .measured>p{color:var(--ink-soft);font-size:14.5px;margin:0 0 20px;max-width:66ch}
+  .bars{display:flex;flex-direction:column;gap:16px}
+  .bar-row{display:grid;grid-template-columns:120px 1fr;gap:14px;align-items:center}
+  @media(max-width:520px){.bar-row{grid-template-columns:1fr}}
+  .bar-lab{font-family:var(--mono);font-size:12.5px;color:var(--ink-soft)}
+  .bar-lab b{display:block;color:var(--ink);font-size:13px}
+  .track{position:relative;height:34px;background:var(--panel-2);border-radius:7px;overflow:hidden;
+    border:1px solid var(--line)}
+  .fill{height:100%;display:flex;align-items:center;padding:0 10px;font-family:var(--mono);
+    font-size:12.5px;color:#fff;font-variant-numeric:tabular-nums;white-space:nowrap;border-radius:7px 0 0 7px}
+  .fill.bf16{background:var(--crit)} .fill.fp8{background:var(--good)}
+  .measured .note{margin-top:18px;font-size:13px;color:var(--ink-soft);border-left:3px solid var(--warn);
+    padding:4px 0 4px 14px}
+  /* cta */
+  .cta{margin-top:40px;text-align:center;padding:34px 20px;border-radius:16px;
+    background:var(--panel);border:1px solid var(--line)}
+  .cta h2{font-size:24px;margin:0 0 8px;letter-spacing:-.01em}
+  .cta p{color:var(--ink-soft);max-width:52ch;margin:0 auto 20px}
+  .btns{display:flex;gap:12px;justify-content:center;flex-wrap:wrap}
+  .btn{font-family:var(--mono);font-size:14px;text-decoration:none;padding:12px 20px;border-radius:9px;
+    border:1px solid var(--line-strong);color:var(--ink);background:var(--panel-2)}
+  .btn.primary{background:var(--accent);color:#fff;border-color:var(--accent)}
+  .btn:hover{border-color:var(--accent)}
+  footer{margin-top:28px;text-align:center;font-size:12.5px;color:var(--ink-soft);
+    font-family:var(--mono)}
+  footer a{color:var(--accent-ink)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <p class="eyebrow">InferPilot · interactive</p>
+  <h1>Should you turn on fp8 KV cache? <span class="q">It depends — and GPU utilization won't tell you.</span></h1>
+  <p class="lede">Most vLLM tuning is folklore because the one number everyone watches — GPU utilization — sits near 100% whether a server is genuinely compute-bound or thrashing on memory. Move the signals below and watch what actually decides it.</p>
+  <a class="repo-top" href="https://github.com/poojithdevan4D/InferPilot" target="_blank" rel="noopener">★ github.com/poojithdevan4D/InferPilot</a>
+
+  <div class="console">
+    <div class="panel">
+      <h2>Observed signals</h2>
+      <p class="sub">What your vLLM server reports during a measured window.</p>
+
+      <div class="ctrl">
+        <div class="row"><label for="kv">KV cache usage (peak)</label><span class="val" id="kvv">99%</span></div>
+        <input id="kv" type="range" min="0" max="100" value="99">
+      </div>
+      <div class="ctrl">
+        <div class="row"><label for="pre">Preemptions in window</label><span class="val" id="prev">6</span></div>
+        <input id="pre" type="range" min="0" max="20" value="6">
+      </div>
+      <div class="ctrl">
+        <div class="row"><label>Is the server keeping up?</label></div>
+        <div class="seg" id="sat">
+          <button data-sat="over" aria-pressed="true">overloaded</button>
+          <button data-sat="near" aria-pressed="false">near capacity</button>
+          <button data-sat="ok" aria-pressed="false">keeping up</button>
+        </div>
+      </div>
+      <div class="ctrl">
+        <div class="row"><label>Try a real scenario</label></div>
+        <div class="presets" id="presets">
+          <button data-p="kvbound">3B / KV-full / preempting</button>
+          <button data-p="compute">7B / compute-bound</button>
+          <button data-p="idle">low traffic</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>InferPilot verdict</h2>
+      <p class="sub">Recomputed live from the signals — or it abstains.</p>
+      <div class="verdict" id="verdict">
+        <span class="chip" id="chip">…</span>
+        <h3 id="vtitle">…</h3>
+        <p id="vbody">…</p>
+        <div class="lever" id="vlever">…</div>
+        <div class="gpu-note">
+          <span class="gpu-dot" id="gpudot">99%</span>
+          <small id="gpunote"></small>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="punch">
+    <h2>The trap, side by side</h2>
+    <p>These two servers report almost identical GPU utilization. One will get ~40% more throughput from fp8 KV cache; the other gets nothing. Utilization can't separate them — the recompute-from-preemption signal can.</p>
+    <div class="twin">
+      <div class="card">
+        <div class="gauge"><span>GPU util</span><b>99%</b></div>
+        <span class="tag" style="background:var(--crit)">KV-BOUND · PREEMPTING</span>
+        <h4>fp8 KV helps</h4>
+        <p>KV cache is full, the scheduler is preempting and recomputing tokens — wasted work fp8 can relieve.</p>
+      </div>
+      <div class="card">
+        <div class="gauge"><span>GPU util</span><b>100%</b></div>
+        <span class="tag" style="background:var(--idle)">COMPUTE-BOUND · NO PREEMPTION</span>
+        <h4>fp8 does nothing</h4>
+        <p>The GPU math is the limit. No recompute waste to remove, so a precision change is a placebo. Save the effort.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="measured">
+    <h2>Measured, not hypothetical</h2>
+    <p>A paired study on Qwen2.5-3B (A10G, vLLM 0.29.0) using an exact recomputed-token counter added to vLLM. In the preempting regime, fp8 drove recomputed tokens to zero and throughput up. Total GPU cost: $0.81.</p>
+    <div class="bars">
+      <div class="bar-row">
+        <div class="bar-lab"><b>Recomputed tokens</b>wasted work</div>
+        <div>
+          <div class="track" style="margin-bottom:8px"><div class="fill bf16" style="width:96%">bf16 KV · 29,826</div></div>
+          <div class="track"><div class="fill fp8" style="width:2%;min-width:64px">fp8 · 0</div></div>
+        </div>
+      </div>
+      <div class="bar-row">
+        <div class="bar-lab"><b>Throughput</b>tokens / sec</div>
+        <div>
+          <div class="track" style="margin-bottom:8px"><div class="fill bf16" style="width:66%">bf16 · baseline</div></div>
+          <div class="track"><div class="fill fp8" style="width:90%">fp8 · +36%</div></div>
+        </div>
+      </div>
+    </div>
+    <p class="note">Honest caveat: on a 7B model the throughput win held (+33%) but recompute did <b>not</b> go to zero — the mechanism is model-size dependent, and InferPilot reports that instead of overclaiming. The quality preflight also detected distribution shift, so fp8 KV isn't called "lossless."</p>
+  </div>
+
+  <div class="cta">
+    <h2>Diagnose before you tune.</h2>
+    <p>InferPilot is an open-source, evidence-first tool for vLLM: it measures your server, names the real bottleneck, and refuses to guess when the evidence is thin.</p>
+    <div class="btns">
+      <a class="btn primary" href="https://github.com/poojithdevan4D/InferPilot" target="_blank" rel="noopener">View on GitHub →</a>
+      <a class="btn" href="https://github.com/vllm-project/vllm/pull/57698" target="_blank" rel="noopener">The vLLM metric PR</a>
+    </div>
+  </div>
+
+  <footer>Open source · MIT · <a href="https://github.com/poojithdevan4D/InferPilot" target="_blank" rel="noopener">poojithdevan4D/InferPilot</a></footer>
+</div>
+
+<script>
+(function(){
+  var kv=document.getElementById('kv'), pre=document.getElementById('pre');
+  var kvv=document.getElementById('kvv'), prev=document.getElementById('prev');
+  var sat='over';
+  var V=document.getElementById('verdict'), chip=document.getElementById('chip'),
+      vt=document.getElementById('vtitle'), vb=document.getElementById('vbody'),
+      vl=document.getElementById('vlever'), gd=document.getElementById('gpudot'),
+      gn=document.getElementById('gpunote');
+
+  function gpuFor(){
+    // Deliberately: GPU util is ~100% whenever the server is busy, regardless of regime.
+    if(sat==='ok') return 62;
+    return 99;
+  }
+
+  function classify(){
+    var k=+kv.value/100, p=+pre.value, g=gpuFor();
+    var cls,label,title,body,lever,note;
+    if(sat==='ok'){
+      cls='idle';label='underutilized';
+      title='Low load — you have headroom';
+      body='The server is keeping up with room to spare. A throughput lever like fp8 solves a problem you do not have.';
+      lever='Recommended lever: <b>none</b> (latency tricks only if you have an SLO to chase).';
+      note='<b>GPU '+g+'%.</b> Genuinely idle — the one case utilization reads low.';
+    } else if(k>=0.95 && p>0){
+      cls='good';label='KV-capacity-bound';
+      title='Preempting on KV pressure → fp8 KV is worth trying';
+      body='KV cache is full and the scheduler is preempting and recomputing tokens. That recompute is wasted work fp8 KV can relieve — the one regime where it reliably pays off.';
+      lever='Recommended lever: <b>kv_cache_dtype=fp8</b> — behind a canary, rollback, and a quality gate.';
+      note='<b>GPU '+g+'%.</b> Looks maxed out — but the win here is memory, not compute. Utilization alone would hide that.';
+    } else if(p===0 && k<0.95){
+      cls='idle';label='compute-bound';
+      title='Compute-bound → no config lever will help';
+      body='No preemptions and KV has headroom, yet the server is saturated. The GPU math is the limit. Changing precision or batch knobs is a placebo here.';
+      lever='Recommended lever: <b>none</b> — accept it, or scale to a bigger/more GPUs.';
+      note='<b>GPU '+g+'%.</b> Identical to the KV-bound case above — which is exactly why utilization cannot decide this.';
+    } else if(k>=0.95 && p===0){
+      cls='warn';label='near the edge';
+      title='KV is full but not yet preempting';
+      body='Cache is full without recompute waste yet. fp8 buys headroom before you tip into preemption, but the payoff is smaller than in the preempting regime.';
+      lever='Recommended lever: <b>watch preemptions</b>; fp8 is pre-emptive insurance, not a measured win yet.';
+      note='<b>GPU '+g+'%.</b> Same reading as every other busy case.';
+    } else {
+      cls='warn';label='indeterminate';
+      title='Not enough aligned evidence';
+      body='The signals do not point to one bottleneck. InferPilot abstains rather than guess — collect a longer, aligned window before acting.';
+      lever='Recommended lever: <b>none yet</b> — gather more evidence.';
+      note='<b>GPU '+g+'%.</b> A number that looks decisive but explains nothing on its own.';
+    }
+    V.className='verdict '+cls;
+    chip.textContent=label;
+    vt.textContent=title; vb.textContent=body; vl.innerHTML=lever;
+    gd.textContent=g+'%'; gd.style.background = g<70?'var(--idle)':'var(--warn)';
+    gn.innerHTML=note;
+  }
+
+  function upd(){ kvv.textContent=kv.value+'%'; prev.textContent=pre.value; classify(); }
+  kv.addEventListener('input',upd); pre.addEventListener('input',upd);
+
+  document.querySelectorAll('#sat button').forEach(function(b){
+    b.addEventListener('click',function(){
+      document.querySelectorAll('#sat button').forEach(function(x){x.setAttribute('aria-pressed','false')});
+      b.setAttribute('aria-pressed','true'); sat=b.dataset.sat; upd();
+    });
+  });
+
+  var P={
+    kvbound:{kv:99,pre:6,sat:'over'},
+    compute:{kv:74,pre:0,sat:'over'},
+    idle:{kv:35,pre:0,sat:'ok'}
+  };
+  document.querySelectorAll('#presets button').forEach(function(b){
+    b.addEventListener('click',function(){
+      var s=P[b.dataset.p]; kv.value=s.kv; pre.value=s.pre; sat=s.sat;
+      document.querySelectorAll('#sat button').forEach(function(x){
+        x.setAttribute('aria-pressed', x.dataset.sat===s.sat ? 'true':'false');});
+      upd();
+    });
+  });
+
+  upd();
+})();
+</script>
+
+</body>
+</html>
