@@ -1,0 +1,4 @@
+vllm:kv_cache_usage_perc{model_name="demo"} 0.55
+vllm:num_requests_running{model_name="demo"} 20
+vllm:num_requests_waiting{model_name="demo"} 7
+vllm:num_preemptions_total{model_name="demo"} 0
