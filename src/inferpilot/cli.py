@@ -13,8 +13,9 @@ from .advisor.capacity_advisory import OperatorEconomics
 from .capacity_frontier import frontier_from_results
 from .config import ExperimentConfig, SLO
 from .evidence_card import OptimizationEvidenceCard, build_evidence_card
+from .inference_plan import plan_to_target
 from .lever_impact import compare_lever
-from .report import render_frontier, render_impact
+from .report import render_frontier, render_impact, render_plan
 from .mechanism import MechanismEvidence
 from .phases import RunnerPhaseTiming
 from .results import ExperimentResult
@@ -301,6 +302,13 @@ def _capacity(args: argparse.Namespace) -> int:
         print(f"capacity: {exc}", file=sys.stderr)
         return 2
     print(render_frontier(baseline))
+    if args.target_qps is not None:
+        plan = plan_to_target(
+            baseline, args.target_qps,
+            budget_per_million_output_tokens_usd=args.budget_per_mtok,
+        )
+        print()
+        print(render_plan(plan))
     if args.candidate:
         if not args.lever:
             print("capacity: --lever is required with --candidate.", file=sys.stderr)
@@ -400,6 +408,10 @@ def _parser() -> argparse.ArgumentParser:
     capacity.add_argument("--e2e-p95-ms", type=float)
     capacity.add_argument("--gpu-cost-per-hour", type=float, help="enables $/token at the ceiling")
     capacity.add_argument("--gpu-count", type=int, default=1)
+    capacity.add_argument("--target-qps", type=float,
+                          help="emit an action plan to sustain this QPS under the SLO")
+    capacity.add_argument("--budget-per-mtok", type=float,
+                          help="$/1M output tokens budget, used by the plan")
     capacity.add_argument("--candidate", type=Path, nargs="+",
                           help="candidate rate-sweep bundles (same sweep with the lever applied)")
     capacity.add_argument("--lever", type=str, help="the lever under test, e.g. kv_cache_dtype=fp8")

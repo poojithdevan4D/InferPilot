@@ -247,6 +247,7 @@ def _point_from_result(result: ExperimentResult, slo: SLO) -> CapacityPoint:
         if margin is None or m < margin:
             margin, binding = m, name
 
+    regime, lever = _diagnose_point(result)
     return CapacityPoint(
         offered_qps=offered,
         achieved_qps=agg.throughput_requests_per_s or 0.0,
@@ -254,7 +255,22 @@ def _point_from_result(result: ExperimentResult, slo: SLO) -> CapacityPoint:
         overloaded=_is_overloaded(result),
         slo_margin=margin,
         binding_metric=binding,
+        regime=regime,
+        recommended_lever=lever,
     )
+
+
+def _diagnose_point(result: ExperimentResult) -> tuple[Optional[str], Optional[str]]:
+    """Best-effort bottleneck regime for this run, used only by the lever forecast/plan.
+    Without aligned load evidence the diagnosis is 'unknown'; a malformed diagnosis is
+    swallowed to None so it never blocks the (independent) ceiling math."""
+    from .diagnosis import diagnose
+
+    try:
+        d = diagnose(result, load_evidence=result.load_evidence)
+    except ValueError:
+        return None, None
+    return d.regime, d.recommended_lever
 
 
 def _require_same_deployment(results: list[ExperimentResult]) -> None:

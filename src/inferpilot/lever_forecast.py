@@ -57,9 +57,9 @@ def _derive(frontier: CapacityFrontier, lever: str) -> tuple[ForecastVerdict, Op
         ]
 
     wall = _wall_point(frontier)
-    if wall is None or wall.regime is None:
+    if wall is None or wall.regime is None or wall.regime == "unknown":
         return "collect_evidence_first", frontier.ceiling_qps, [
-            "ceiling_pinned_but_wall_point_has_no_bottleneck_diagnosis",
+            "ceiling_pinned_but_wall_point_has_no_actionable_bottleneck_diagnosis",
             "attach_aligned_load_evidence_and_re_diagnose_the_limiting_run",
         ]
 

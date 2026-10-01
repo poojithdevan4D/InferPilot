@@ -9,6 +9,7 @@ functions add no claims of their own.
 from __future__ import annotations
 
 from .capacity_frontier import CapacityFrontier
+from .inference_plan import DeploymentPlan
 from .lever_forecast import LeverForecast
 from .lever_impact import LeverImpact
 
@@ -87,6 +88,29 @@ def render_impact(impact: LeverImpact) -> str:
                 f"  The candidate met the SLO through every tested rate — measure higher to quantify the new ceiling.")
     return (f"Measured impact — {lv}: INCONCLUSIVE.\n"
             f"  {'; '.join(impact.reasons)}.")
+
+
+_PLAN_HEADLINE = {
+    "meets_target_now": "ALREADY MEETS TARGET",
+    "lever_then_confirm": "TRY A LEVER, THEN CONFIRM",
+    "scale_out": "SCALE OUT",
+    "reduce_cost_via_lever": "MEETS QPS — CUT COST WITH A LEVER",
+    "over_budget_no_lever": "MEETS QPS — OVER BUDGET",
+    "collect_evidence": "COLLECT EVIDENCE FIRST",
+    "measure_first": "FIND THE CEILING FIRST",
+}
+
+
+def render_plan(plan: DeploymentPlan) -> str:
+    budget = ""
+    if plan.budget_per_million_output_tokens_usd is not None:
+        budget = f", budget ${plan.budget_per_million_output_tokens_usd:g}/1M tokens"
+    lines = [f"Plan to {plan.target_qps:g} QPS{budget}: {_PLAN_HEADLINE[plan.verdict]}"]
+    for step in plan.steps:
+        lines.append(f"  {step.order}. [{step.action}] {step.detail}")
+        if step.confirm:
+            lines.append(f"     -> {step.confirm}")
+    return "\n".join(lines)
 
 
 def _shift(impact: LeverImpact) -> str:
