@@ -94,3 +94,21 @@ def test_cli_inspect_with_no_source_is_friendly(capsys) -> None:
     rc = main(["inspect"])
     assert rc == 2
     assert "--url" in capsys.readouterr().err
+
+
+def test_cli_doctor_alias_works(tmp_path, capsys) -> None:
+    b = tmp_path / "b.txt"; b.write_text(_metrics(kv=0.98, waiting=5, preemptions=10))
+    a = tmp_path / "a.txt"; a.write_text(_metrics(kv=0.98, waiting=6, preemptions=15))
+    rc = main(["doctor", str(b), str(a)])
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "KV-BOUND & PREEMPTING" in out
+
+
+def test_cli_inspect_json(tmp_path, capsys) -> None:
+    import json
+    b = tmp_path / "b.txt"; b.write_text(_metrics(kv=0.3, waiting=0))
+    rc = main(["inspect", str(b), "--json"])
+    assert rc == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["verdict"] == "healthy_or_underutilized"

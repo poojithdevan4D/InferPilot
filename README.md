@@ -42,29 +42,53 @@ To inspect the machine-readable result:
 uv run inferpilot demo --output evidence-card.json
 ```
 
-## Try it on your own vLLM (no benchmark run)
+## The vLLM doctor — diagnose your server in one line
 
-Already running vLLM? Screen it straight from its Prometheus `/metrics` — two scrapes,
-no load test:
+Already running vLLM? Point it at the server. No install, no benchmark run:
 
 ```bash
-curl -s http://localhost:8000/metrics > before.txt
-sleep 45
-curl -s http://localhost:8000/metrics > after.txt
-inferpilot inspect before.txt after.txt
+uvx inferpilot doctor --url http://localhost:8000
 ```
 
 ```text
-Live /metrics screening: KV-BOUND & PREEMPTING — fp8 worth a canary  (KV 98%, waiting 7)
-  The KV cache is full and the scheduler is preempting (wasted recompute). fp8 KV is the
-  mechanistic lever — run a controlled canary and confirm with compare_lever.
-  Lever to test: kv_cache_dtype=fp8
+InferPilot · the vLLM doctor
+──────────────────────────────────────────────
+⚡ KV-BOUND & PREEMPTING
+   kv_cache_dtype=fp8 → worth testing
+
+   KV cache    ████████████████████  98%
+   queue       8 waiting  ← backing up
+   running     12 requests
+   preemptions rising (+9)
+
+→ The KV cache is full and the scheduler is preempting (wasted recompute). fp8 KV is
+  the mechanistic lever — run a controlled canary and confirm before you ship it.
 ```
 
-It tells you which regime you are in — `KV-bound & preempting` (fp8 is worth testing),
-`compute/other-bound` (fp8 won't help), `near-capacity`, or `healthy` — and names the
-missing metric when it cannot decide. Once you have a rate sweep, `inferpilot capacity`
-turns it into an SLO-capacity ceiling, a `$/token`, and an action plan to a target QPS.
+Or the honest verdict most tools won't give you:
+
+```text
+✗ COMPUTE / OTHER-BOUND
+   fp8 KV cache → won't help here
+
+   KV cache    ███████████░░░░░░░░░  55%
+   queue       7 waiting  ← backing up
+   preemptions none
+
+→ Requests are queuing while the KV cache has headroom — the bottleneck is compute or
+  something other than KV. fp8 KV will not help; look at scaling instead.
+```
+
+It scrapes `/metrics` twice itself and tells you which regime you are in —
+`KV-bound & preempting` (fp8 worth testing), `compute/other-bound` (fp8 won't help),
+`near-capacity`, or `healthy` — and names the missing metric when it can't decide.
+`--json` for scripts, `--plain` for no color.
+
+**Install:** `uvx inferpilot …` runs it with zero install. To keep it around:
+`uv tool install inferpilot` or `pipx install inferpilot` (or plain `pip install inferpilot`).
+
+Once you have a rate sweep, `inferpilot capacity` turns it into an SLO-capacity ceiling,
+a `$/token`, and an action plan to a target QPS.
 
 ## The pipeline
 

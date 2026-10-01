@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import shlex
 import sys
 from pathlib import Path
@@ -362,7 +363,12 @@ def _inspect(args: argparse.Namespace) -> int:
         print("inspect: give a --url (e.g. http://localhost:8000) or a /metrics file.", file=sys.stderr)
         return 2
     reading = inspect_metrics(before, after)
-    print(render_live_reading(reading))
+    if args.json:
+        print(reading.model_dump_json(indent=2))
+        return 0
+    color = (sys.stdout.isatty() and not args.plain
+             and os.environ.get("NO_COLOR") is None and os.environ.get("TERM") != "dumb")
+    print(render_live_reading(reading, color=color))
     if args.output is not None:
         args.output.write_text(reading.model_dump_json(indent=2))
     return 0
@@ -458,8 +464,8 @@ def _parser() -> argparse.ArgumentParser:
     capacity.add_argument("--lever", type=str, help="the lever under test, e.g. kv_cache_dtype=fp8")
     capacity.set_defaults(handler=_capacity)
     inspect = sub.add_parser(
-        "inspect",
-        help="screen a live vLLM in one line — no benchmark run (inferpilot inspect --url http://localhost:8000)",
+        "inspect", aliases=["doctor"],
+        help="diagnose a live vLLM in one line — no benchmark run (inferpilot doctor --url http://localhost:8000)",
     )
     inspect.add_argument("--url", type=str,
                          help="vLLM base URL or /metrics endpoint; scrapes it for you (no curl needed)")
@@ -469,7 +475,9 @@ def _parser() -> argparse.ArgumentParser:
     inspect.add_argument("before", type=Path, nargs="?",
                          help="or a saved /metrics file, instead of --url")
     inspect.add_argument("after", type=Path, nargs="?", help="an optional second /metrics file")
-    inspect.add_argument("--output", type=Path, help="write the LiveReading JSON")
+    inspect.add_argument("--json", action="store_true", help="emit the verdict as JSON (for scripts)")
+    inspect.add_argument("--plain", action="store_true", help="no color (also respects NO_COLOR)")
+    inspect.add_argument("--output", type=Path, help="write the LiveReading JSON to a file")
     inspect.set_defaults(handler=_inspect)
     return parser
 

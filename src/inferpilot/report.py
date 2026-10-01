@@ -114,29 +114,79 @@ def render_plan(plan: DeploymentPlan) -> str:
     return "\n".join(lines)
 
 
-_READING_HEADLINE = {
-    "kv_capacity_bound_preempting": "KV-BOUND & PREEMPTING — fp8 worth a canary",
-    "near_capacity": "NEAR CAPACITY — KV full, not preempting yet",
-    "not_kv_bound": "COMPUTE/OTHER-BOUND — fp8 won't help",
-    "healthy_or_underutilized": "HEALTHY / UNDERUTILIZED",
-    "need_second_snapshot": "NEED A SECOND SNAPSHOT",
-    "insufficient_metrics": "INSUFFICIENT METRICS",
+_ANSI = {"reset": "\033[0m", "bold": "\033[1m", "dim": "\033[2m", "red": "\033[31m",
+         "green": "\033[32m", "yellow": "\033[33m", "cyan": "\033[36m", "grey": "\033[90m"}
+
+
+def _paint(text: str, *styles: str, color: bool) -> str:
+    if not color or not styles:
+        return text
+    return "".join(_ANSI[s] for s in styles) + text + _ANSI["reset"]
+
+
+def _bar(frac: float, width: int = 20) -> str:
+    frac = max(0.0, min(1.0, frac))
+    filled = round(frac * width)
+    return "█" * filled + "░" * (width - filled)
+
+
+# verdict -> (glyph+headline, headline color, sub-line fallback, sub color)
+_READING = {
+    "kv_capacity_bound_preempting": ("⚡ KV-BOUND & PREEMPTING", "yellow", None, "green"),
+    "near_capacity": ("◐ NEAR CAPACITY", "yellow", "fp8 is pre-emptive insurance, not a measured win", "grey"),
+    "not_kv_bound": ("✗ COMPUTE / OTHER-BOUND", "red", "fp8 KV cache → won't help here", "grey"),
+    "healthy_or_underutilized": ("✓ HEALTHY / UNDERUTILIZED", "green", "no KV lever is warranted", "grey"),
+    "need_second_snapshot": ("… NEED A SECOND SNAPSHOT", "cyan", "capture /metrics again in 30–60s", "grey"),
+    "insufficient_metrics": ("… INSUFFICIENT METRICS", "cyan", "a needed metric is missing", "grey"),
 }
 
 
-def render_live_reading(reading: LiveReading) -> str:
+def render_live_reading(reading: LiveReading, *, color: bool = False) -> str:
     snap = reading.after or reading.before
-    facts = []
+    headline, hcolor, sub_fallback, scolor = _READING[reading.verdict]
+    sub = sub_fallback
+    if reading.recommended_lever != "none":
+        sub = f"{reading.recommended_lever} → worth testing"
+
+    out = [
+        _paint("InferPilot · the vLLM doctor", "bold", color=color),
+        _paint("─" * 46, "grey", color=color),
+        _paint(headline, "bold", hcolor, color=color),
+    ]
+    if sub:
+        out.append("   " + _paint(sub, scolor, color=color))
+    out.append("")
+
+    # Evidence: only what /metrics actually gives us.
+    def row(label: str, body: str) -> str:
+        return "   " + _paint(f"{label:<12}", "grey", color=color) + body
+
     if snap.kv_cache_usage_perc is not None:
-        facts.append(f"KV {snap.kv_cache_usage_perc * 100:.0f}%")
+        kv = snap.kv_cache_usage_perc
+        kvcol = "red" if kv >= 0.95 else ("yellow" if kv >= 0.8 else "green")
+        out.append(row("KV cache", _paint(_bar(kv), kvcol, color=color) + f"  {kv * 100:.0f}%"))
     if snap.num_requests_waiting is not None:
-        facts.append(f"waiting {snap.num_requests_waiting:g}")
+        w = snap.num_requests_waiting
+        out.append(row("queue", f"{w:g} waiting"
+                       + (_paint("  ← backing up", "yellow", color=color) if w > 0 else "")))
     if snap.num_requests_running is not None:
-        facts.append(f"running {snap.num_requests_running:g}")
-    factstr = ("  (" + ", ".join(facts) + ")") if facts else ""
-    return (f"Live /metrics screening: {_READING_HEADLINE[reading.verdict]}{factstr}\n"
-            f"  {reading.next_step}"
-            + (f"\n  Lever to test: {reading.recommended_lever}" if reading.recommended_lever != "none" else ""))
+        out.append(row("running", f"{snap.num_requests_running:g} requests"))
+    pre = _preempt_delta(reading)
+    if pre is not None:
+        body = (_paint(f"rising (+{pre:g})", "red", color=color) if pre > 0
+                else _paint("none", "green", color=color))
+        out.append(row("preemptions", body))
+
+    out.append("")
+    out.append(_paint("→ ", "bold", color=color) + reading.next_step)
+    return "\n".join(out)
+
+
+def _preempt_delta(reading: LiveReading):
+    b, a = reading.before, reading.after
+    if a is None or b.num_preemptions_total is None or a.num_preemptions_total is None:
+        return None
+    return a.num_preemptions_total - b.num_preemptions_total
 
 
 def _shift(impact: LeverImpact) -> str:
