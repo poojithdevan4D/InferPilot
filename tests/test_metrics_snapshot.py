@@ -88,3 +88,9 @@ def test_cli_inspect_prints_screening(tmp_path, capsys) -> None:
     assert rc == 0
     assert "KV-BOUND & PREEMPTING" in out
     assert "kv_cache_dtype=fp8" in out
+
+
+def test_cli_inspect_with_no_source_is_friendly(capsys) -> None:
+    rc = main(["inspect"])
+    assert rc == 2
+    assert "--url" in capsys.readouterr().err

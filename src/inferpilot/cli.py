@@ -328,9 +328,39 @@ def _capacity(args: argparse.Namespace) -> int:
     return 0
 
 
+def _fetch_metrics(url: str, timeout: float) -> str:
+    import urllib.request
+
+    endpoint = url.rstrip("/")
+    if not endpoint.endswith("/metrics"):
+        endpoint += "/metrics"
+    with urllib.request.urlopen(endpoint, timeout=timeout) as resp:  # noqa: S310 (operator-supplied URL)
+        return resp.read().decode("utf-8", "replace")
+
+
 def _inspect(args: argparse.Namespace) -> int:
-    before = args.before.read_text()
-    after = args.after.read_text() if args.after is not None else None
+    if args.url:
+        import time
+
+        try:
+            before = _fetch_metrics(args.url, args.timeout)
+            if args.interval > 0:
+                print(f"Watching {args.url} for {args.interval:g}s to measure the preemption rate...",
+                      file=sys.stderr)
+                time.sleep(args.interval)
+                after = _fetch_metrics(args.url, args.timeout)
+            else:
+                after = None
+        except OSError as exc:
+            print(f"inspect: could not reach {args.url} ({exc}). Is vLLM up and --url correct?",
+                  file=sys.stderr)
+            return 2
+    elif args.before is not None:
+        before = args.before.read_text()
+        after = args.after.read_text() if args.after is not None else None
+    else:
+        print("inspect: give a --url (e.g. http://localhost:8000) or a /metrics file.", file=sys.stderr)
+        return 2
     reading = inspect_metrics(before, after)
     print(render_live_reading(reading))
     if args.output is not None:
@@ -429,11 +459,16 @@ def _parser() -> argparse.ArgumentParser:
     capacity.set_defaults(handler=_capacity)
     inspect = sub.add_parser(
         "inspect",
-        help="read-only screening from a live vLLM's Prometheus /metrics (no benchmark run)",
+        help="screen a live vLLM in one line — no benchmark run (inferpilot inspect --url http://localhost:8000)",
     )
-    inspect.add_argument("before", type=Path, help="a /metrics snapshot (curl http://host:8000/metrics > before.txt)")
-    inspect.add_argument("after", type=Path, nargs="?",
-                         help="a second snapshot 30-60s later, to measure the preemption rate")
+    inspect.add_argument("--url", type=str,
+                         help="vLLM base URL or /metrics endpoint; scrapes it for you (no curl needed)")
+    inspect.add_argument("--interval", type=float, default=45.0,
+                         help="seconds between the two scrapes (default 45; 0 = single snapshot)")
+    inspect.add_argument("--timeout", type=float, default=5.0, help="HTTP timeout per scrape (s)")
+    inspect.add_argument("before", type=Path, nargs="?",
+                         help="or a saved /metrics file, instead of --url")
+    inspect.add_argument("after", type=Path, nargs="?", help="an optional second /metrics file")
     inspect.add_argument("--output", type=Path, help="write the LiveReading JSON")
     inspect.set_defaults(handler=_inspect)
     return parser
