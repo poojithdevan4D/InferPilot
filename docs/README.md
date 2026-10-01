@@ -34,7 +34,6 @@ order. Choose the path that matches your goal.
 - [Quality-gate methodology](design/2026-09-19-quality-gate-methodology.md)
 - [Measured-canary boundary](architecture/m8-measured-canary.md)
 - [Search and adaptation](architecture/milestone-2-search-and-adaptation.md)
-- [Decision pack](planning/2026-09-19-decision-pack.md)
 
 ## Evidence labels
 

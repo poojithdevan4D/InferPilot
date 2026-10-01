@@ -36,3 +36,20 @@ DS_Store
 Workflow.txt
 *-handoff.md
 *_handoff/
+GPT-HANDOFF*.md
+
+# Internal / private — kept local, never published
+InferPilot*Context.md
+UNDERSTANDING-*.md
+docs/planning/
+docs/status/
+docs/launch/posts.md
+docs/launch/inferpilot-console.html
+research_notes/
+reports/
+
+# Scratch images / screenshots
+og.png
+zsh*.png
+Pasted image*.png
+*.cast
