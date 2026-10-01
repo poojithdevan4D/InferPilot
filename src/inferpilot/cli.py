@@ -10,8 +10,11 @@ from pathlib import Path
 from pydantic import ValidationError
 
 from .advisor.capacity_advisory import OperatorEconomics
+from .capacity_frontier import frontier_from_results
 from .config import ExperimentConfig, SLO
 from .evidence_card import OptimizationEvidenceCard, build_evidence_card
+from .lever_impact import compare_lever
+from .report import render_frontier, render_impact
 from .mechanism import MechanismEvidence
 from .phases import RunnerPhaseTiming
 from .results import ExperimentResult
@@ -279,6 +282,43 @@ def _bind_quality(args: argparse.Namespace) -> int:
     return 0
 
 
+def _load_results(paths: list[Path]) -> list[ExperimentResult]:
+    return [ExperimentResult.model_validate_json(_bundle_files(p)[0].read_text()) for p in paths]
+
+
+def _capacity(args: argparse.Namespace) -> int:
+    slo = SLO(ttft_p95_ms=args.ttft_p95_ms, tpot_p95_ms=args.tpot_p95_ms, e2e_p95_ms=args.e2e_p95_ms)
+    if slo.ttft_p95_ms is None and slo.tpot_p95_ms is None and slo.e2e_p95_ms is None:
+        print("capacity: provide at least one SLO threshold "
+              "(--ttft-p95-ms / --tpot-p95-ms / --e2e-p95-ms).", file=sys.stderr)
+        return 2
+    try:
+        baseline = frontier_from_results(
+            _load_results(args.runs), slo,
+            gpu_cost_per_hour_usd=args.gpu_cost_per_hour, gpu_count=args.gpu_count,
+        )
+    except (ValueError, ValidationError) as exc:
+        print(f"capacity: {exc}", file=sys.stderr)
+        return 2
+    print(render_frontier(baseline))
+    if args.candidate:
+        if not args.lever:
+            print("capacity: --lever is required with --candidate.", file=sys.stderr)
+            return 2
+        try:
+            candidate = frontier_from_results(
+                _load_results(args.candidate), slo,
+                gpu_cost_per_hour_usd=args.gpu_cost_per_hour, gpu_count=args.gpu_count,
+            )
+            impact = compare_lever(args.lever, baseline, candidate)
+        except (ValueError, ValidationError) as exc:
+            print(f"capacity: {exc}", file=sys.stderr)
+            return 2
+        print()
+        print(render_impact(impact))
+    return 0
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="inferpilot",
@@ -349,6 +389,21 @@ def _parser() -> argparse.ArgumentParser:
     analyze.add_argument("--target-qps", type=float)
     analyze.add_argument("--output", type=Path, help="write immutable-style evidence-card JSON")
     analyze.set_defaults(handler=_analyze)
+    capacity = sub.add_parser(
+        "capacity",
+        help="estimate the SLO-capacity ceiling from a rate sweep, and the measured impact of a lever",
+    )
+    capacity.add_argument("runs", type=Path, nargs="+",
+                          help="baseline rate-sweep run bundles (>=2, same config, varying QPS)")
+    capacity.add_argument("--ttft-p95-ms", type=float)
+    capacity.add_argument("--tpot-p95-ms", type=float)
+    capacity.add_argument("--e2e-p95-ms", type=float)
+    capacity.add_argument("--gpu-cost-per-hour", type=float, help="enables $/token at the ceiling")
+    capacity.add_argument("--gpu-count", type=int, default=1)
+    capacity.add_argument("--candidate", type=Path, nargs="+",
+                          help="candidate rate-sweep bundles (same sweep with the lever applied)")
+    capacity.add_argument("--lever", type=str, help="the lever under test, e.g. kv_cache_dtype=fp8")
+    capacity.set_defaults(handler=_capacity)
     return parser
 
 
