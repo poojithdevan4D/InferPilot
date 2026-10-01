@@ -42,6 +42,30 @@ To inspect the machine-readable result:
 uv run inferpilot demo --output evidence-card.json
 ```
 
+## Try it on your own vLLM (no benchmark run)
+
+Already running vLLM? Screen it straight from its Prometheus `/metrics` — two scrapes,
+no load test:
+
+```bash
+curl -s http://localhost:8000/metrics > before.txt
+sleep 45
+curl -s http://localhost:8000/metrics > after.txt
+inferpilot inspect before.txt after.txt
+```
+
+```text
+Live /metrics screening: KV-BOUND & PREEMPTING — fp8 worth a canary  (KV 98%, waiting 7)
+  The KV cache is full and the scheduler is preempting (wasted recompute). fp8 KV is the
+  mechanistic lever — run a controlled canary and confirm with compare_lever.
+  Lever to test: kv_cache_dtype=fp8
+```
+
+It tells you which regime you are in — `KV-bound & preempting` (fp8 is worth testing),
+`compute/other-bound` (fp8 won't help), `near-capacity`, or `healthy` — and names the
+missing metric when it cannot decide. Once you have a rate sweep, `inferpilot capacity`
+turns it into an SLO-capacity ceiling, a `$/token`, and an action plan to a target QPS.
+
 ## The pipeline
 
 ```text
