@@ -14,9 +14,9 @@ order. Choose the path that matches your goal.
 
 ## I want to evaluate the scientific claim
 
-1. Read [When does FP8 KV actually help?](blog/when-does-fp8-kv-actually-help.md).
-2. Read the [response to expert critique](CRITIQUE-RESPONSE.md).
-3. Read the latest [instrumentation-pilot result](experiments/2026-09-20-fp8-instrumentation-pilot-v2-results.md).
+1. Start with [FP8 KV improved throughput by 33.6%. Our hypothesis still failed.](blog/fp8-throughput-improved-hypothesis-failed.md).
+2. Read [When does FP8 KV actually help?](blog/when-does-fp8-kv-actually-help.md).
+3. Read the [response to expert critique](CRITIQUE-RESPONSE.md).
 4. Inspect the preregistrations and full positive, invalid, and negative record in
    [`experiments/`](experiments/).
 
