@@ -163,7 +163,7 @@
       <a class="btn" href="https://github.com/poojithdevan4D/InferPilot" target="_blank" rel="noopener">View on GitHub</a>
       <a class="btn" href="https://pypi.org/project/inferpilot/" target="_blank" rel="noopener">PyPI</a>
     </div>
-    <p class="subtle">Open source · MIT · no telemetry · no GPU needed to run the diagnosis</p>
+    <p class="subtle">Open source · MIT · no telemetry · no GPU needed for screening or the synthetic demo</p>
   </header>
 </div>
 
@@ -269,9 +269,9 @@
         <div class="track"><div class="fill fp8" style="width:90%">fp8 · +36%</div></div>
       </div>
     </div>
-    <p class="caveat">Honest caveat: on a 7B model the throughput win held (+33%) but recompute did <b>not</b> go to zero —
-      the mechanism is model-size dependent, and InferPilot reports that instead of overclaiming. The quality preflight
-      also detected distribution shift, so fp8 KV isn't called "lossless."</p>
+    <p class="caveat">Honest caveat: in the later preregistered 7B study, throughput improved 33.6% on the pressured
+      workload and 0.2% on the control, but recomputation did <b>not</b> fall as registered. The verdict was
+      <b>INCONCLUSIVE</b>, not a mechanism win. <a href="https://github.com/poojithdevan4D/InferPilot/blob/master/docs/experiments/2026-09-22-fp8-mechanism-7b-repair-results.md" target="_blank" rel="noopener">Read the full result.</a></p>
   </section>
 
   <section id="install">
@@ -284,7 +284,8 @@
     </div>
     <p class="sub" style="margin-top:22px">Then the daily loop: <code>doctor</code> to glance,
       <code>doctor --watch</code> to monitor, <code>capacity</code> to turn a rate sweep into an SLO-capacity ceiling,
-      a $/token, and an action plan.</p>
+      a $/token, and an action plan. No server yet? <code>uvx inferpilot demo</code> exercises the complete
+      decision contracts using clearly labelled synthetic metadata.</p>
   </section>
 </div>
 
@@ -293,8 +294,9 @@
     InferPilot — the vLLM doctor · MIT ·
     <a href="https://github.com/poojithdevan4D/InferPilot" target="_blank" rel="noopener">GitHub</a> ·
     <a href="https://pypi.org/project/inferpilot/" target="_blank" rel="noopener">PyPI</a> ·
+    <a href="https://github.com/poojithdevan4D/InferPilot/issues/new?template=field-report.yml" target="_blank" rel="noopener">Share a field result</a> ·
     <a href="https://github.com/vllm-project/vllm/pull/57698" target="_blank" rel="noopener">vLLM PR #57698</a>
-    <div style="margin-top:8px;color:#4a5765">Built in the open, with honest limits. Diagnoses only when the evidence supports it.</div>
+    <div style="margin-top:8px;color:#4a5765">Built in the open, with honest limits. Screens cheaply, measures controlled candidates, and abstains when evidence is insufficient.</div>
   </div>
 </footer>
 

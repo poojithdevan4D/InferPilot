@@ -6,10 +6,32 @@ Point InferPilot at a running vLLM: it reads the live Prometheus `/metrics` and 
 pressure, preemption, and queueing. It tells you whether a change like fp8 KV cache is worth a
 controlled test, and abstains when the signals cannot support one. Open source, MIT, no telemetry.
 
-**▶ Try the interactive demo (no install):** https://poojithdevan4d.github.io/InferPilot/ — move the
-signals and watch the verdict change.
+## Try InferPilot in 60 seconds
+
+Choose the path that matches what you have:
+
+| You have… | Do this | What you get |
+|---|---|---|
+| Nothing installed | **[Open the interactive demo](https://poojithdevan4d.github.io/InferPilot/)** | See how live signals change the next experiment |
+| A running vLLM server | `uvx inferpilot doctor --url http://localhost:8000` | A live, non-invasive screening result |
+| No GPU, but want the full pipeline | `uvx inferpilot demo` | A synthetic Evidence Card through the real decision contracts |
+
+No account, API key, or telemetry. `doctor` reads vLLM's Prometheus endpoint; it does not change the
+server. The synthetic demo proves software behavior, not an empirical performance claim.
 
 ![InferPilot diagnosing a live vLLM](docs/launch/doctor.gif)
+
+## One measured result—including the failed hypothesis
+
+In a preregistered Qwen2.5-7B/A10G study, fp8 KV improved throughput by **33.6%** on the
+KV-pressured workload and by only **0.2%** on the unpressured control. But fp8 did not reduce
+recomputation as preregistered, so the study verdict was **INCONCLUSIVE**, not a claimed mechanism
+win. InferPilot preserved the useful performance result and the contradicted explanation.
+
+[Read the 12-cell result and its limitations →](docs/experiments/2026-09-22-fp8-mechanism-7b-repair-results.md)
+
+That is the project boundary: screen cheaply, measure controlled candidates, and abstain rather
+than turn a plausible story into a deployment recommendation.
 
 ## Diagnose your vLLM in one line
 
@@ -78,11 +100,10 @@ same resolved configuration, environment, workload, and seeds; only offered QPS 
 
 ## Go deeper: the full decision path (no GPU)
 
-No GPU, model download, or API key is required:
+No GPU, model download, repository checkout, or API key is required:
 
 ```bash
-uv sync --extra dev --locked
-uv run inferpilot demo
+uvx inferpilot demo
 ```
 
 Expected output:
@@ -101,7 +122,7 @@ The candidate is a test, not a deployment.
 
 This example is explicitly synthetic. It exercises the same contracts, diagnosis, economics, and
 Evidence Card used for a real run; it is not included in the empirical evidence corpus. To inspect
-the machine-readable result: `uv run inferpilot demo --output evidence-card.json`.
+the machine-readable result: `uvx inferpilot demo --output evidence-card.json`.
 
 ## The pipeline
 
@@ -242,17 +263,17 @@ InferPilot is currently an offline decision-support tool, not an autonomous prod
 
 ## Empirical result so far
 
-Across a small measured matrix of four models, two model families, and two GPU types, FP8 KV was
-associated with roughly **40–53% higher throughput when the BF16 baseline was KV-full and
-preempting**, but only **1.7%** in a no-preemption case. A later six-cell instrumentation pilot showed
-a 1.308× geometric-mean throughput ratio but failed its preregistered target-regime gate, so the larger
-claim remains unconfirmed.
+Exploratory runs across a small matrix found roughly **40–53% higher throughput when the BF16
+baseline was KV-full and preempting**, but only **1.7%** in a no-preemption case. The later
+preregistered 7B repair study found **+33.6%** on its pressured workload and **+0.2%** on its control,
+while contradicting the registered recomputation mechanism. Its verdict was therefore
+`INCONCLUSIVE`.
 
 That is a useful mechanism hypothesis, not a universal law. The quality preflight also found real
 distributional shift, so InferPilot always requires task-quality and long-context checks before an
 FP8 candidate can be accepted. Read the concise
 [finding](docs/blog/when-does-fp8-kv-actually-help.md) and the
-[instrumentation-pilot result](docs/experiments/2026-09-20-fp8-instrumentation-pilot-v2-results.md).
+[latest preregistered result](docs/experiments/2026-09-22-fp8-mechanism-7b-repair-results.md).
 
 ## Repository map
 
@@ -261,7 +282,7 @@ Start with the paths you actually use:
 - [`src/inferpilot/metrics_snapshot.py`](src/inferpilot/metrics_snapshot.py) — the `doctor` read-only screening from `/metrics`.
 - [`src/inferpilot/capacity_frontier.py`](src/inferpilot/capacity_frontier.py) — the SLO-capacity ceiling from a rate sweep.
 - [`src/inferpilot/inference_plan.py`](src/inferpilot/inference_plan.py) — the action plan to a target QPS.
-- [`src/inferpilot/cli.py`](src/inferpilot/cli.py) — the two commands, `doctor` and `capacity`.
+- [`src/inferpilot/cli.py`](src/inferpilot/cli.py) — the operator-facing command line.
 
 Deeper internals: [`saturation.py`](src/inferpilot/saturation.py) (conservative load assessment),
 [`diagnosis.py`](src/inferpilot/diagnosis.py) (regime classifier), and
@@ -274,7 +295,7 @@ They are evidence for reviewers, not required reading for first use.
 ## Verify the repository
 
 ```bash
-uv run --extra dev pytest -q  # 535 tests, no GPU
+uv run --extra dev pytest -q  # no GPU
 uv build
 ```
 
@@ -289,3 +310,8 @@ trustworthy and repeatedly useful.
 
 InferPilot's rule is simple: **measure, bind the evidence, recommend one test, and abstain when the
 claim is not supported.**
+
+Found something surprising on a real vLLM deployment? Please use the
+[field-report form](https://github.com/poojithdevan4D/InferPilot/issues/new?template=field-report.yml).
+Negative results and abstentions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) before sharing
+artifacts or deployment details.

@@ -1,0 +1,85 @@
+name: vLLM field report
+description: Share a real InferPilot screening or controlled benchmark result
+title: "[Field report] "
+labels: ["field-report"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for testing InferPilot. Negative results and abstentions are welcome. Remove prompts,
+        generated text, hostnames, credentials, customer data, and other private information.
+  - type: dropdown
+    id: evidence_type
+    attributes:
+      label: Evidence type
+      options:
+        - Live doctor screening
+        - Controlled benchmark
+        - Synthetic demo only
+        - Failure or abstention
+    validations:
+      required: true
+  - type: input
+    id: inferpilot_version
+    attributes:
+      label: InferPilot version or commit
+      placeholder: "0.1.0 or git SHA"
+    validations:
+      required: true
+  - type: input
+    id: vllm_version
+    attributes:
+      label: vLLM version
+      placeholder: "0.29.0"
+    validations:
+      required: true
+  - type: input
+    id: model
+    attributes:
+      label: Model and revision
+      placeholder: "Qwen/Qwen2.5-7B-Instruct @ revision"
+    validations:
+      required: true
+  - type: input
+    id: hardware
+    attributes:
+      label: GPU and count
+      placeholder: "1x NVIDIA A10G"
+    validations:
+      required: true
+  - type: textarea
+    id: workload
+    attributes:
+      label: Workload and offered load
+      description: Include prompt/output lengths, request count, arrival pattern, QPS or concurrency, and seeds when available.
+    validations:
+      required: true
+  - type: textarea
+    id: result
+    attributes:
+      label: Result
+      description: Include the verdict, relevant metrics, acceptance failures, and artifact hashes or bundle paths when shareable.
+    validations:
+      required: true
+  - type: textarea
+    id: expectation
+    attributes:
+      label: What did you expect, and what surprised you?
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction command or minimal configuration
+      render: shell
+    validations:
+      required: true
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Data safety
+      options:
+        - label: I removed credentials, private prompts, generated customer content, and identifying deployment information.
+          required: true
+        - label: I have not presented a live screening result as a proven causal diagnosis.
+          required: true
