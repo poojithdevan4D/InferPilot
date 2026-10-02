@@ -154,10 +154,11 @@
 
   <header class="hero">
     <p class="eyebrow">The vLLM doctor</p>
-    <h1>Know which config change is worth testing next.</h1>
-    <p class="lede">Point InferPilot at a running vLLM. It reads two live <code>/metrics</code> snapshots,
-      screens for KV pressure, preemption, and queueing, and tells you whether a change like
-      <b>fp8 KV cache</b> deserves a controlled canary.</p>
+    <h1>Stop flipping vLLM knobs on vibes.</h1>
+    <p class="lede">Your GPU sits at ~100% whether it's doing real work or thrashing on KV cache and
+      recomputing preempted tokens — on a dashboard they look identical. InferPilot reads your live
+      <code>/metrics</code> and tells you which regime you're actually in, and whether a change like
+      <b>fp8 KV cache</b> is worth testing — or a waste of time.</p>
 
     <div class="cmd">
       <span class="dollar">$</span>

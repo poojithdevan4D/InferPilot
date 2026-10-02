@@ -1,10 +1,18 @@
 # InferPilot
 
-**The vLLM doctor — screen live signals, then verify changes with controlled evidence.**
+[![PyPI](https://img.shields.io/pypi/v/inferpilot?color=0a7)](https://pypi.org/project/inferpilot/)
+[![Python](https://img.shields.io/pypi/pyversions/inferpilot)](https://pypi.org/project/inferpilot/)
+[![CI](https://img.shields.io/github/actions/workflow/status/poojithdevan4D/InferPilot/ci.yml?label=tests)](https://github.com/poojithdevan4D/InferPilot/actions)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+![no telemetry](https://img.shields.io/badge/telemetry-none-555)
 
-Point InferPilot at a running vLLM: it reads the live Prometheus `/metrics` and screens for KV
-pressure, preemption, and queueing. It tells you whether a change like fp8 KV cache is worth a
-controlled test, and abstains when the signals cannot support one. Open source, MIT, no telemetry.
+**The vLLM doctor — know if a config change will actually help, before you touch production.**
+
+Your vLLM server's GPU sits at ~100% whether it's doing real work or thrashing on KV cache and
+recomputing preempted tokens — on a dashboard they look identical. So fp8, bigger batches, every
+knob gets flipped on vibes. **InferPilot reads your live `/metrics` and tells you which regime
+you're actually in — and whether a lever like fp8 KV cache is worth testing, or a waste of time.**
+No GPU needed to screen. Open source, MIT, no telemetry.
 
 ## Try InferPilot in 60 seconds
 
